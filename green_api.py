@@ -45,7 +45,7 @@ class GreenApiManager:
             r = await client.get(download_url)
             return r.content
 
-    async def get_chat_history(self, chat_id: str, count: int = 1) -> List[dict]:
+    async def get_chat_history(self, chat_id: str, count: int = 1) -> list:
         """Fetches the last N messages from a chat to check for human takeover."""
         url = self._get_url("getChatHistory")
         payload = {"chatId": chat_id, "count": count}
