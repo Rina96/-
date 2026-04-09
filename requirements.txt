@@ -32,3 +32,4 @@ pytz==2024.1
 moviepy==1.0.3
 Pillow==10.3.0
 telethon==1.35.0
+Pillow==10.1.0
