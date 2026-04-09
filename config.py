@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     # AI Engine
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", ""))
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    VOICE_ENABLED: bool = True
+    WHISPER_ENABLED: bool = True
+    VISION_ENABLED: bool = True
     
     # Green API (WhatsApp)
     GREEN_API_ID_INSTANCE: str = os.getenv("GREEN_API_ID_INSTANCE", "")
@@ -27,5 +30,17 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         extra = "allow"
+
+    @property
+    def ASYNC_DATABASE_URL(self) -> str:
+        """Converts postgres:// to postgresql+asyncpg:// for SQLAlchemy."""
+        url = self.DATABASE_URL
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        elif "sqlite" in url and "aiosqlite" not in url:
+            url = url.replace("sqlite:///", "sqlite+aiosqlite:///./")
+        return url
 
 settings = Settings()
