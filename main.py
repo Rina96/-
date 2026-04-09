@@ -56,3 +56,8 @@ async def process_incoming_message(chat_id: str, text: str, db: AsyncSession, im
 async def webhook(request: Request, db: AsyncSession = Depends(get_db_session)):
     # Legacy logic for standalone server if needed
     pass
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
