@@ -2,7 +2,7 @@ import asyncio
 import os
 from typing import Optional
 from loguru import logger
-from fastapi import FastAPI, BackgroundTasks, Depends
+from fastapi import FastAPI, BackgroundTasks, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import engine, Base, get_db_session
 from crud import crud
@@ -55,12 +55,4 @@ async def process_incoming_message(chat_id: str, text: str, db: AsyncSession, im
 @app.post("/webhook/green-api")
 async def webhook(request: Request, db: AsyncSession = Depends(get_db_session)):
     # Legacy logic for standalone server if needed
-    data = await request.json()
-    logger.debug(f"Webhook data: {data}")
-    body = data.get("body", {})
-    if body.get("typeWebhook") == "incomingMessageReceived":
-        chat_id = body.get("senderData", {}).get("chatId")
-        text = body.get("messageData", {}).get("textMessageData", {}).get("textMessage", "")
-        if chat_id and text:
-            asyncio.create_task(process_incoming_message(chat_id, text, db))
-    return {"status": "ok"}
+    pass
