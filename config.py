@@ -41,6 +41,7 @@ class Settings(BaseSettings):
             url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
         elif "sqlite" in url and "aiosqlite" not in url:
             url = url.replace("sqlite:///", "sqlite+aiosqlite:///./")
+        url = url.split("?")[0] if "sslmode" in url else url
         return url
 
 settings = Settings()
