@@ -9,55 +9,103 @@ from crud import crud
 from llm_engine import llm
 from green_api import wa_client
 from config import settings
-from integrations_mock import crm_mock, kaspi_mock
+from integrations_mock import kaspi_mock
+from scheduler import scheduler_loop
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start Scheduler in background
+    logger.info("📡 Starting Proactive Scheduler...")
+    asyncio.create_task(scheduler_loop())
+    yield
+    logger.info("🔌 Shutting down...")
 
-async def process_incoming_message(chat_id: str, text: str, db: AsyncSession, image_url: Optional[str] = None):
-    """Elite background worker with Vision and Voice support."""
-    logger.info(f"🚀 Обработка: {text[:30]} | Фото: {bool(image_url)}")
+app = FastAPI(lifespan=lifespan)
+
+async def process_incoming_message(chat_id: str, text: str, db: AsyncSession, image_url: Optional[str] = None, pdf_bytes: Optional[bytes] = None):
+    """Elite worker with 15s Delay (Human First) and PDF support."""
     
+    # 1. Human-First Delay (15 seconds)
+    logger.info(f"⏳ Waiting 15s for human takeover in {chat_id}...")
+    await asyncio.sleep(15)
+    
+    # Check if human replied in the meantime
+    history = await wa_client.get_chat_history(chat_id, count=1)
+    if history and history[0].get("type") == "outgoing":
+        logger.info(f"🛡 Human takeover detected in {chat_id}. Юлия отступает.")
+        return
+
     session = await crud.get_or_create_session(db, chat_id)
     await crud.add_message_to_history(db, session, role="user", text=text)
+
+    # 2. PDF Processing
+    pdf_text = None
+    if pdf_bytes:
+        logger.info(f"📄 Parsing PDF for {chat_id}")
+        pdf_text = llm.extract_text_from_pdf(pdf_bytes)
+
+    # 3. AI Thinking (Self-Reflection + Vision)
+    ai_response = llm.generate_response(user_message=text, chat_history=session.history_json, image_url=image_url, pdf_text=pdf_text)
     
-    # 1. AI Thinking (GPT-4o Vision + Multi-agent logic)
-    ai_response = llm.generate_response(user_message=text, chat_history=session.history_json, image_url=image_url)
-    
-    # 2. Обновление памяти
+    # Update Database with payment status if detected
+    if ai_response.is_paid_detected:
+        logger.success(f"💰 Payment detected for {chat_id}!")
+        session.is_paid = True
+        session.booked_date = ai_response.booked_date or session.booked_date
+
     await crud.add_message_to_history(db, session, role="assistant", text=ai_response.reply_text)
     
-    # 3. Ответ: Голос или Текст?
+    # 4. Response
     if ai_response.voice_response_needed and settings.VOICE_ENABLED:
-        logger.info(f"🎙 Генерация ГОЛОСОВОГО ответа для {chat_id}")
         audio_bytes = await llm.generate_voice(ai_response.reply_text)
         temp_path = f"voice_{chat_id}.ogg"
-        with open(temp_path, "wb") as f:
-            f.write(audio_bytes)
-        
+        with open(temp_path, "wb") as f: f.write(audio_bytes)
         await wa_client.send_file(chat_id, temp_path)
         os.remove(temp_path)
     else:
-        # Стандартный текст кусками
         chunks = [c.strip() for c in ai_response.reply_text.split("\n\n") if c.strip()][:2]
         for i, chunk in enumerate(chunks):
             if i > 0: await asyncio.sleep(4)
             await wa_client.send_message(chat_id, chunk)
 
-    # 4. Выставление счета, если клиент готов
-    if ai_response.is_qualified:
-        total_price = (ai_response.adult_count * 5000) + (ai_response.child_count * 2000)
-        invoice_url = await kaspi_mock.create_invoice(chat_id, amount=total_price)
-        invoice_msg = f"Оплатите, пожалуйста, счет на сумму {total_price} тг по ссылке: {invoice_url}"
-        await wa_client.send_message(chat_id, invoice_msg)
-
-    logger.success(f"✅ Цикл обработки завершен для {chat_id}")
+    await db.commit()
+    logger.success(f"✅ processed {chat_id}")
 
 @app.post("/webhook/green-api")
 async def webhook(request: Request, db: AsyncSession = Depends(get_db_session)):
-    # Legacy logic for standalone server if needed
-    pass
+    data = await request.json()
+    body = data.get("body", {})
+    type_webhook = body.get("typeWebhook")
+    
+    if type_webhook == "incomingMessageReceived":
+        chat_id = body.get("senderData", {}).get("chatId")
+        msg_data = body.get("messageData", {})
+        
+        text = ""
+        image_url = None
+        pdf_bytes = None
+        
+        # Handle Text
+        if "textMessageData" in msg_data:
+            text = msg_data["textMessageData"].get("textMessage", "")
+        # Handle Images
+        elif "imageMessageData" in msg_data:
+            image_url = msg_data["imageMessageData"].get("downloadUrl")
+            text = msg_data["imageMessageData"].get("caption", "Скриншот")
+        # Handle Documents (PDF)
+        elif "fileMessageData" in msg_data:
+            doc_url = msg_data["fileMessageData"].get("downloadUrl")
+            file_name = msg_data["fileMessageData"].get("fileName", "")
+            if file_name.lower().endswith(".pdf"):
+                pdf_bytes = await wa_client.download_file(doc_url)
+                text = "Прислал PDF чек"
+
+        if chat_id:
+            asyncio.create_task(process_incoming_message(chat_id, text, db, image_url, pdf_bytes))
+            
+    return {"status": "ok"}
 
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
-

@@ -22,4 +22,10 @@ class ChatSession(Base):
     child_age = Column(Integer, nullable=True)
     client_intent = Column(String, nullable=True) # например, "для себя" или "для ребенка"
     last_interaction = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    
+    # Scheduling & Payment
+    is_paid = Column(Boolean, default=False)
+    booked_date = Column(String, nullable=True) # например, "2024-04-14"
+    is_reminder_sent = Column(Boolean, default=False)
+    is_feedback_sent = Column(Boolean, default=False)
 
