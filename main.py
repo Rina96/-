@@ -15,7 +15,16 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start Scheduler in background
+    # 1. Initialize Database Schema (Migration-on-the-fly)
+    try:
+        logger.info("🛠 Initializing Database Schema...")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.success("✅ Database Schema Ready.")
+    except Exception as e:
+        logger.error(f"❌ DB Init Error: {e}")
+
+    # 2. Start Scheduler in background
     logger.info("📡 Starting Proactive Scheduler...")
     loop_task = asyncio.create_task(scheduler_loop())
     yield
