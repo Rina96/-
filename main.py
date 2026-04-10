@@ -31,21 +31,18 @@ app = FastAPI(lifespan=lifespan)
 
 async def process_incoming_message(chat_id: str, text: str, incoming_ts: int, image_url: Optional[str] = None):
     """
-    SWISS WATCH CORE: Resilient Message Pipeline 4.6
-    FIXED: Human takeover logic & Loud Logging
+    SWISS WATCH CORE: Resilient Message Pipeline 4.6 (NO DELAY TEST)
     """
     try:
-        print(f"🕒 [1/7] Waiting 15s for human in {chat_id}...")
-        await asyncio.sleep(15)
+        # HUMAN DELAY REMOVED FOR DEBUGGING
+        print(f"⚡️ [1/7] Processing message for {chat_id} WITHOUT DELAY...")
         
-        # Check Human Takeover (Fixed Logic)
+        # Check Human Takeover (Still keep logic but no sleep)
         cloud_history = await wa_client.get_chat_history(chat_id, count=5)
         
-        # Check if a human replied AFTER this message arrived
         human_replied = False
         for msg in cloud_history:
             if msg.get("role") == "assistant" and msg.get("ts", 0) > incoming_ts:
-                # This was a reply AFTER the current user message
                 human_replied = True
                 break
         
@@ -53,11 +50,11 @@ async def process_incoming_message(chat_id: str, text: str, incoming_ts: int, im
             print(f"🛡 [2/7] Human takeover detected in {chat_id}. Julia silent.")
             return
 
-        print(f"🧠 [3/7] Processing message for {chat_id}...")
+        print(f"🧠 [3/7] Accessing context for {chat_id}...")
         async with AsyncSessionLocal() as db:
             # CRM CONTEXT
             crm_lead = await alfa_crm.get_customer_by_phone(chat_id)
-            crm_name = crm_lead.get("name", "WhatsApp Lead") if crm_lead else "WhatsApp Lead"
+            crm_name = crm_lead.get("name", "WA Lead") if crm_lead else "WA Lead"
             crm_id = crm_lead.get("id") if crm_lead else None
             
             # DB & History
@@ -65,7 +62,7 @@ async def process_incoming_message(chat_id: str, text: str, incoming_ts: int, im
             if crm_id: session.crm_lead_id = str(crm_id)
             await crud.add_message_to_history(db, session, role="user", text=text)
 
-            # AI Thinking with cloud history for perfect context
+            # AI Thinking
             print(f"🤖 [4/7] Generating AI response for {chat_id}...")
             ai_response = llm.generate_response(
                 user_message=text, 
@@ -83,7 +80,6 @@ async def process_incoming_message(chat_id: str, text: str, incoming_ts: int, im
                 print(f"📈 [6/7] Updating CRM for {chat_id}...")
                 if ai_response.is_paid_detected and crm_id:
                     asyncio.create_task(alfa_crm.set_status(int(crm_id), alfa_crm.STATUS_PAID))
-                    asyncio.create_task(alfa_crm.add_comment(int(crm_id), "Оплата подтверждена ИИ."))
                 elif not crm_id:
                     asyncio.create_task(alfa_crm.sync_customer(chat_id, crm_name))
 
@@ -95,22 +91,29 @@ async def process_incoming_message(chat_id: str, text: str, incoming_ts: int, im
 
 @app.post("/webhook/green-api")
 async def webhook(request: Request):
+    """
+    Block 6: Defensive parsing logic + LOUD DEBUGGING
+    """
     try:
+        # LOUD DEBUG: Print immediately
+        raw_body = await request.body()
+        print(f"DEBUG: WEBHOOK ARRIVED! Raw Body: {raw_body.decode()[:200]}")
+        
         data = await request.json()
         body = data.get("body", {})
         
         if body.get("typeWebhook") == "incomingMessageReceived":
             chat_id = body.get("senderData", {}).get("chatId")
-            # Extract timestamp from Green API
             incoming_ts = body.get("timestamp", int(time.time()))
             msg_data = body.get("messageData", {})
             text = msg_data.get("textMessageData", {}).get("textMessage", "")
             
             if chat_id and text:
-                print(f"📩 WEBHOOK RECEIVED from {chat_id}: '{text[:20]}...'")
+                print(f"📩 RELEVANT MESSAGE from {chat_id}: '{text[:20]}'")
                 asyncio.create_task(process_incoming_message(chat_id, text, incoming_ts))
             else:
-                return {"status": "no content"}
+                print(f"⚠️ IGNORED: Empty message or non-text in {chat_id}")
+        
         return {"status": "ok"}
     except Exception as e:
         print(f"🚨 WEBHOOK ERROR: {e}")
