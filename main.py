@@ -22,16 +22,27 @@ async def lifespan(app: FastAPI):
     loop_task.cancel()
     logger.info("🔌 Shutting down...")
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(lifespan=lifespan)
 
-# --- 1. LIGHTWEIGHT HEALTH CHECK (Move to top) ---
+# --- MIDDLEWARE (For Cron-job headers support) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- 1. LIGHTWEIGHT HEALTH CHECK ---
 @app.get("/")
+@app.head("/")
 async def root_check():
     """Wakes up the bot from the root URL."""
     return {"status": "ok", "message": "Julia is awake!"}
 
-@app.get("/health")
-@app.get("/health/")
+@app.api_route("/health", methods=["GET", "HEAD", "OPTIONS"])
+@app.api_route("/health/", methods=["GET", "HEAD", "OPTIONS"])
 async def health_check():
     """Ultra-fast wake-up endpoint for Render & Cron-job."""
     return {"status": "ok"}
