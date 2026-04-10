@@ -1,9 +1,12 @@
 import httpx
 import os
+from typing import List, Dict, Any
 from loguru import logger
 from config import settings
 
 class GreenApiManager:
+    """Enhanced WhatsApp gateway with cloud history retrieval."""
+    
     def __init__(self):
         self.host = settings.GREEN_API_HOST
         self.id_instance = settings.GREEN_API_ID_INSTANCE
@@ -23,11 +26,29 @@ class GreenApiManager:
                 logger.error(f"WA Error: {e}")
                 return False
 
+    async def get_chat_history(self, chat_id: str, count: int = 10) -> List[Dict[str, Any]]:
+        """Cloud memory: Fetches official chat history from Green API Cloud."""
+        url = self._get_url("getChatHistory")
+        payload = {"chatId": chat_id, "count": count}
+        async with httpx.AsyncClient() as client:
+            try:
+                r = await client.post(url, json=payload, timeout=10.0)
+                if r.status_code == 200:
+                    history = r.json()
+                    ai_history = []
+                    for msg in reversed(history):
+                        role = "assistant" if msg.get("type") == "outgoing" else "user"
+                        text = msg.get("textMessage", "")
+                        if text:
+                            ai_history.append({"role": role, "text": text})
+                    return ai_history
+                return []
+            except Exception as e:
+                logger.error(f"⚠️ WA History Fail: {e}")
+                return []
+
     async def send_file(self, chat_id: str, file_path: str, caption: str = "") -> bool:
-        """Sends a file (image, audio, voice) to WhatsApp."""
         url = self._get_url("sendFileByUpload")
-        
-        # Prepare file for upload
         file_name = os.path.basename(file_path)
         async with httpx.AsyncClient() as client:
             try:
@@ -40,23 +61,8 @@ class GreenApiManager:
                 return False
 
     async def download_file(self, download_url: str) -> bytes:
-        """Downloads a file from Green API storage."""
         async with httpx.AsyncClient() as client:
             r = await client.get(download_url)
             return r.content
-
-    async def get_chat_history(self, chat_id: str, count: int = 1) -> list:
-        """Fetches the last N messages from a chat to check for human takeover."""
-        url = self._get_url("getChatHistory")
-        payload = {"chatId": chat_id, "count": count}
-        async with httpx.AsyncClient() as client:
-            try:
-                r = await client.post(url, json=payload, timeout=10.0)
-                if r.status_code == 200:
-                    return r.json()
-                return []
-            except Exception as e:
-                logger.error(f"WA History Error: {e}")
-                return []
 
 wa_client = GreenApiManager()
