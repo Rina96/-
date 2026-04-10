@@ -5,7 +5,7 @@ from loguru import logger
 from config import settings
 
 class GreenApiManager:
-    """Enhanced WhatsApp gateway with cloud history retrieval."""
+    """Enhanced WhatsApp gateway with cloud history and timestamps."""
     
     def __init__(self):
         self.host = settings.GREEN_API_HOST
@@ -27,7 +27,7 @@ class GreenApiManager:
                 return False
 
     async def get_chat_history(self, chat_id: str, count: int = 10) -> List[Dict[str, Any]]:
-        """Cloud memory: Fetches official chat history from Green API Cloud."""
+        """Cloud memory with timestamps for sophisticated human-takeover checks."""
         url = self._get_url("getChatHistory")
         payload = {"chatId": chat_id, "count": count}
         async with httpx.AsyncClient() as client:
@@ -39,8 +39,10 @@ class GreenApiManager:
                     for msg in reversed(history):
                         role = "assistant" if msg.get("type") == "outgoing" else "user"
                         text = msg.get("textMessage", "")
+                        # Include timestamp for precise logic
+                        timestamp = msg.get("timestamp", 0)
                         if text:
-                            ai_history.append({"role": role, "text": text})
+                            ai_history.append({"role": role, "text": text, "ts": timestamp})
                     return ai_history
                 return []
             except Exception as e:
