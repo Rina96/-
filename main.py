@@ -9,7 +9,7 @@ from crud import crud
 from llm_engine import llm
 from green_api import wa_client
 from config import settings
-from integrations_mock import kaspi_mock
+from integrations import alfa_crm
 from scheduler import scheduler_loop
 from contextlib import asynccontextmanager
 
@@ -78,6 +78,15 @@ async def process_incoming_message(chat_id: str, text: str, image_url: Optional[
             session = await crud.get_or_create_session(db, chat_id)
             await crud.add_message_to_history(db, session, role="user", text=text)
 
+            # --- ALFACRM SYNC ---
+            try:
+                crm_id = await alfa_crm.sync_customer(phone=chat_id, name=session.client_name or "WhatsApp Lead")
+                if crm_id:
+                    session.crm_lead_id = str(crm_id)
+                    logger.info(f"🔗 Synced with AlfaCRM Lead ID: {crm_id}")
+            except Exception as e:
+                logger.error(f"⚠️ AlfaCRM Sync Error: {e}")
+
             # 2. PDF Processing
             pdf_text = None
             if pdf_bytes:
@@ -87,11 +96,16 @@ async def process_incoming_message(chat_id: str, text: str, image_url: Optional[
             # 3. AI Thinking (Self-Reflection + Vision)
             ai_response = llm.generate_response(user_message=text, chat_history=session.history_json, image_url=image_url, pdf_text=pdf_text)
             
-            # Update Database with payment status if detected
+            # Update Database and CRM with payment status if detected
             if ai_response.is_paid_detected:
                 logger.success(f"💰 Payment detected for {chat_id}!")
                 session.is_paid = True
                 session.booked_date = ai_response.booked_date or session.booked_date
+                
+                # Update AlfaCRM
+                if session.crm_lead_id:
+                    await alfa_crm.set_status(int(session.crm_lead_id), alfa_crm.STATUS_PAID)
+                    await alfa_crm.add_comment(int(session.crm_lead_id), f"Оплата подтверждена ИИ. Дата записи: {session.booked_date}")
 
             await crud.add_message_to_history(db, session, role="assistant", text=ai_response.reply_text)
             

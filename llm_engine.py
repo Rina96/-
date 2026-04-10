@@ -1,16 +1,14 @@
 import json
 import os
-import base64
 import httpx
 import fitz  # PyMuPDF
-from typing import List, Optional, Union
+from typing import List, Optional
 from loguru import logger
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from config import settings
-from integrations_mock import get_upcoming_weekend_dates
 
-# Initialize OpenAI Client
+# Initialize OpenAI Client (Master Brain)
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 class AIResponseSchema(BaseModel):
@@ -19,35 +17,35 @@ class AIResponseSchema(BaseModel):
     needs_human: Optional[bool] = False
     extracted_name: Optional[str] = ""
     extracted_phone: Optional[str] = ""
-    adult_count: Optional[int] = 1
-    child_count: Optional[int] = 0
     booked_date: Optional[str] = ""
     voice_response_needed: Optional[bool] = False
-    is_paid_detected: Optional[bool] = False  # NEW: Did the AI see a valid payment?
+    is_paid_detected: Optional[bool] = False
 
 class LlmEngine:
+    """Unified AI Engine strictly using OpenAI GPT-4o."""
+    
     def __init__(self):
         self.model = "gpt-4o"
 
     def _build_system_prompt(self) -> str:
-        dates = get_upcoming_weekend_dates()
+        # Import dates dynamically
+        from integrations import alfa_crm
+        dates = alfa_crm.get_upcoming_weekend_dates()
         return f"""
-ТЫ: Юлия, элитный ассистент школы Го имени Кунабаева. 
-ТЫ МОЖЕШЬ: Видеть скриншоты и PDF-чеки Каспи.
+ТЫ: Юлия, элитный менеджер школы 'School Go' (Алматы), интегрированная с AlphaCRM.
 
-ЗАПОВЕДИ:
-1. Краткость. Один шаг за раз. 
-2. САМОАНАЛИЗ: Перед ответом проверь: на каком этапе воронки клиент? 
-3. Если это ЧЕК КАСПИ (PDF или фото) и сумма совпадает с расчетом — установи is_paid_detected: true.
-4. Если вопрос сложный — используй голос (voice_response_needed: true).
+ТВОЯ РОЛЬ:
+- Вести клиента по воронке продаж: Квалификация -> Запись -> Оплата.
+- Все твои действия (подтверждение даты, детекция оплаты) автоматически синхронизируются с CRM.
 
-ЭТАПЫ:
-1. "Вы для себя или ребенка?".
-2. Квалификация (имя, возраст 7+).
-3. Цена: 5000/2000 тг.
-4. Запись: {dates['saturday']} или {dates['sunday']}.
+ТВОИ ВОЗМОЖНОСТИ:
+1. Видеть текстовое описание скриншотов и PDF-чеков Каспи. Сумма для проверки: 5000/2000 тг.
+2. Делать выводы об оплате (is_paid_detected).
 
-ВЫХОД: ТОЛЬКО JSON.
+ПРАВИЛА:
+1. Один шаг за раз. Тон: Friendly Woman (заботливая, но профессиональная).
+2. Даты на выбор: {dates['saturday']} или {dates['sunday']}.
+3. Выход: Только JSON соответствующий AIResponseSchema.
 """
 
     def extract_text_from_pdf(self, pdf_bytes: bytes) -> str:
@@ -62,21 +60,17 @@ class LlmEngine:
             logger.error(f"PDF Parse Error: {e}")
             return ""
 
-    async def transcribe_voice(self, audio_content: bytes) -> str:
-        # ... (whisper logic) ...
-        temp_path = "temp_voice.ogg"
-        with open(temp_path, "wb") as f:
-            f.write(audio_content)
-        with open(temp_path, "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
-        os.remove(temp_path)
-        return transcript.text
-
     async def generate_voice(self, text: str) -> bytes:
-        response = client.audio.speech.create(model="tts-1", voice="nova", input=text)
-        return response.read()
+        """Converts text to speech using OpenAI TTS."""
+        try:
+            response = client.audio.speech.create(model="tts-1", voice="nova", input=text)
+            return response.read()
+        except Exception as e:
+            logger.error(f"TTS Error: {e}")
+            return b""
 
     def generate_response(self, user_message: str, chat_history: List[dict], image_url: Optional[str] = None, pdf_text: Optional[str] = None) -> AIResponseSchema:
+        """Generates a structured response using GPT-4o."""
         system_instruction = self._build_system_prompt()
         
         full_user_content = user_message
@@ -101,9 +95,10 @@ class LlmEngine:
                 temperature=0.2
             )
             data = json.loads(response.choices[0].message.content)
+            logger.success(f"🧠 GPT-4o responded for message")
             return AIResponseSchema(**data)
         except Exception as e:
-            logger.error(f"LLM Error: {e}")
+            logger.error(f"OpenAI API Error: {e}")
             return AIResponseSchema(reply_text="Минутку, сейчас уточню...", needs_human=True)
 
 llm = LlmEngine()
