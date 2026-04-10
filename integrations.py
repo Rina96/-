@@ -60,21 +60,36 @@ class AlfaCrmManager:
         except Exception as e:
             logger.error(f"⚠️ CRM Lookup Fail: {e}")
             return None
-
     async def sync_customer(self, phone: str, name: str = "WA Lead"):
         existing = await self.get_customer_by_phone(phone)
         if existing: return existing.get("id")
         try:
             headers = await self.get_headers()
             url = f"{self.base_url}/{self.BRANCH_ID}/customer/create"
-            clean_phone = "".join(filter(str.isdigit, phone))[-10:]
-            payload = {"name": name, "is_lead": 1, "phone": [clean_phone], "lead_status_id": self.STATUS_NEW}
+            # Format phone as 7XXXXXXXXXX
+            clean_phone = "".join(filter(str.isdigit, phone))
+            if len(clean_phone) == 10: clean_phone = "7" + clean_phone
+            elif len(clean_phone) == 11 and clean_phone.startswith("8"): clean_phone = "7" + clean_phone[1:]
+            
+            payload = {
+                "name": name, 
+                "is_lead": 1, 
+                "phone": [clean_phone], 
+                "branch_ids": [self.BRANCH_ID],
+                "lead_status_id": self.STATUS_NEW,
+                "legal_type": 1, # Physical person
+                "is_study": 0    # Not yet studying (Lead)
+            }
             async with httpx.AsyncClient() as client:
                 r = await client.post(url, headers=headers, json=payload, timeout=5.0)
                 if r.status_code == 200:
                     return r.json().get("model", {}).get("id")
-        except: pass
+                else:
+                    logger.error(f"❌ CRM Sync Error {r.status_code}: {r.text}")
+        except Exception as e:
+            logger.error(f"❌ CRM Sync Exception: {e}")
         return None
+
 
     async def set_status(self, customer_id: int, status_id: int):
         try:
@@ -92,5 +107,16 @@ class AlfaCrmManager:
             async with httpx.AsyncClient() as client:
                 await client.post(url, headers=headers, json=payload, timeout=5.0)
         except: pass
+
+    def get_upcoming_weekend_dates(self) -> Dict[str, str]:
+        """Returns the dates of the next Saturday and Sunday."""
+        today = datetime.date.today()
+        saturday = today + datetime.timedelta((5 - today.weekday()) % 7)
+        if saturday == today: saturday += datetime.timedelta(7)
+        sunday = saturday + datetime.timedelta(1)
+        return {
+            "saturday": saturday.strftime("%d.%m"),
+            "sunday": sunday.strftime("%d.%m")
+        }
 
 alfa_crm = AlfaCrmManager()

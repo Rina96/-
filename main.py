@@ -82,7 +82,10 @@ async def process_incoming_message(chat_id: str, text: str, image_url: Optional[
             if success:
                 if ai_response.is_paid_detected and crm_id:
                     asyncio.create_task(alfa_crm.set_status(int(crm_id), alfa_crm.STATUS_PAID))
-                    asyncio.create_task(alfa_crm.add_comment(int(crm_id), "Оплата подтверждена ИИ."))
+                    asyncio.create_task(alfa_crm.add_comment(int(crm_id), "Оплата подтверждена ИИ. Статус: КЛИЕНТ."))
+                elif ai_response.booked_date and crm_id:
+                    asyncio.create_task(alfa_crm.set_status(int(crm_id), alfa_crm.STATUS_BOOKED))
+                    asyncio.create_task(alfa_crm.add_comment(int(crm_id), f"Записан на мастер-класс: {ai_response.booked_date}"))
                 elif not crm_id:
                     asyncio.create_task(alfa_crm.sync_customer(chat_id, crm_name))
 
