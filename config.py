@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     ALFA_EMAIL: str = os.getenv("ALFA_EMAIL", "schoolgoalmaty@gmail.com")
     ALFA_API_KEY: str = os.getenv("ALFA_API_KEY", "95a954c1-33e5-11f1-a996-3cecefbdd1ae")
     ALFA_APP_KEY: str = os.getenv("ALFA_APP_KEY", "325702e0f2a21a95b6df99e47dc82d02")
-    ALFA_BASE_URL: str = os.getenv("ALFA_BASE_URL", "https://shkolago.s20.online")
+    ALFA_BASE_URL: str = os.getenv("ALFA_BASE_URL", "")
     
     class Config:
         env_file = ".env"

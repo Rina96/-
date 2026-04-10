@@ -2,120 +2,101 @@ import asyncio
 from typing import List
 from sqlalchemy.future import select
 from loguru import logger
-from datetime import datetime, timedelta, timezone
-from sqlalchemy import or_
-
+from datetime import datetime, timedelta
 from database import AsyncSessionLocal
 from models import ChatSession
 from llm_engine import llm
 from green_api import wa_client
 
-# Static thresholds
-PRE_EVENT_REMINDER_MINUTES = 120  # 2 hours
-POST_EVENT_FEEDBACK_MINUTES = 180  # 3 hours
-
 async def check_all_proactive_tasks():
-    """Main loop for the proactive agent engine."""
-    logger.info("Running proactive engine cycle...")
-    async with AsyncSessionLocal() as db:
-        await handle_sunday_broadcast(db)
-        await handle_pre_event_reminders(db)
-        await handle_post_event_feedback(db)
-        await handle_reactivations(db)
+    """Execute all maintenance tasks with Block 7 protection."""
+    try:
+        async with AsyncSessionLocal() as db:
+            # Each handler is independent
+            await handle_sunday_broadcast(db)
+            await handle_pre_event_reminders(db)
+            await handle_post_event_feedback(db)
+            await handle_reactivations(db)
+    except Exception as e:
+        logger.error(f"❌ SCHEDULER DB ERROR: {e}")
 
 async def handle_sunday_broadcast(db):
-    """Sends a warm broadcast every Sunday at 11:00 AM to paid attendees of THAT day."""
-    now = datetime.now()
-    # Check if Sunday and around 11:00
-    if now.weekday() == 6 and now.hour == 11 and now.minute < 30:
-        today_str = now.strftime("%Y-%m-%d")
-        
-        query = select(ChatSession).where(
-            ChatSession.booked_date == today_str,
-            ChatSession.is_paid == True,
-            ChatSession.last_interaction < now - timedelta(minutes=60) # Don't interrupt active chat
-        )
-        result = await db.execute(query)
-        sessions = result.scalars().all()
-        
-        for session in sessions:
-            logger.info(f"Sending Sunday Broadcast to {session.whatsapp_chat_id}")
-            msg = f"Доброе утро, {session.client_name or ''}! ☀️ Ждем вас сегодня на мастер-классе в школе Го. Будет очень интересно!"
-            await wa_client.send_message(session.whatsapp_chat_id, msg)
-        
-        await db.commit()
+    try:
+        now = datetime.now()
+        if now.weekday() == 6 and now.hour == 11 and now.minute < 30:
+            today_str = now.strftime("%Y-%m-%d")
+            query = select(ChatSession).where(
+                ChatSession.booked_date == today_str,
+                ChatSession.is_paid == True
+            )
+            result = await db.execute(query)
+            for session in result.scalars().all():
+                msg = f"Доброе утро, {session.client_name or ''}! ☀️ Ждем вас сегодня!"
+                await wa_client.send_message(session.whatsapp_chat_id, msg)
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Sunday Broadcast Error: {e}")
 
 async def handle_pre_event_reminders(db):
-    """Reminds users 2 hours before their specific booked_at time."""
-    now = datetime.now()
-    reminder_threshold = now + timedelta(minutes=PRE_EVENT_REMINDER_MINUTES)
-    
-    query = select(ChatSession).where(
-        ChatSession.booked_at <= reminder_threshold,
-        ChatSession.booked_at > now,
-        ChatSession.is_paid == True,
-        ChatSession.is_reminder_sent == False
-    )
-    result = await db.execute(query)
-    sessions = result.scalars().all()
-    
-    for session in sessions:
-        logger.info(f"Reminder (2h) for {session.whatsapp_chat_id}")
-        msg = "Напоминаю, что ваш мастер-класс начнется через 2 часа! Ждем вас! ☕️"
-        await wa_client.send_message(session.whatsapp_chat_id, msg)
-        session.is_reminder_sent = True
-    
-    await db.commit()
+    try:
+        now = datetime.now()
+        threshold = now + timedelta(minutes=120)
+        query = select(ChatSession).where(
+            ChatSession.booked_at <= threshold,
+            ChatSession.booked_at > now,
+            ChatSession.is_paid == True,
+            ChatSession.is_reminder_sent == False
+        )
+        result = await db.execute(query)
+        for session in result.scalars().all():
+            await wa_client.send_message(session.whatsapp_chat_id, "Напоминаю, что МК начнется через 2 часа! ☕️")
+            session.is_reminder_sent = True
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Pre-event Reminder Error: {e}")
 
 async def handle_post_event_feedback(db):
-    """Requests feedback 3 hours after the masterclass."""
-    now = datetime.now()
-    feedback_threshold = now - timedelta(minutes=POST_EVENT_FEEDBACK_MINUTES)
-    
-    query = select(ChatSession).where(
-        ChatSession.booked_at <= feedback_threshold,
-        ChatSession.is_paid == True,
-        ChatSession.is_reminder_sent == True, # Only if they were reminded/attended
-        ChatSession.is_feedback_sent == False
-    )
-    result = await db.execute(query)
-    sessions = result.scalars().all()
-    
-    for session in sessions:
-        logger.info(f"Feedback request for {session.whatsapp_chat_id}")
-        msg = "Надеюсь, вам понравился наш мастер-класс! Поделитесь, пожалуйста, вашими впечатлениями? Что было самым запоминающимся?"
-        await wa_client.send_message(session.whatsapp_chat_id, msg)
-        session.is_feedback_sent = True
-        
-    await db.commit()
+    try:
+        now = datetime.now()
+        threshold = now - timedelta(minutes=180)
+        query = select(ChatSession).where(
+            ChatSession.booked_at <= threshold,
+            ChatSession.is_paid == True,
+            ChatSession.is_feedback_sent == False
+        )
+        result = await db.execute(query)
+        for session in result.scalars().all():
+            await wa_client.send_message(session.whatsapp_chat_id, "Поделитесь вашими впечатлениями о мастер-классе? 😊")
+            session.is_feedback_sent = True
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Post-event Feedback Error: {e}")
 
 async def handle_reactivations(db):
-    """Gently nudges leads who stopped responding."""
-    now = datetime.now()
-    threshold = now - timedelta(hours=24)
-    
-    query = select(ChatSession).where(
-        ChatSession.is_qualified == False,
-        ChatSession.last_interaction < threshold,
-        ChatSession.followup_count < 2
-    )
-    result = await db.execute(query)
-    sessions = result.scalars().all()
-    
-    for session in sessions:
-        logger.info(f"Reactivating lead {session.whatsapp_chat_id}")
-        prompt = "Клиент замолчал 24 часа назад. Напиши одну короткую и очень вежливую фразу, чтобы узнать, не передумали ли они насчет школы Го."
-        ai_resp = llm.generate_response(prompt, session.history_json)
-        await wa_client.send_message(session.whatsapp_chat_id, ai_resp.reply_text)
-        session.followup_count += 1
-    
-    await db.commit()
+    try:
+        now = datetime.now()
+        threshold = now - timedelta(hours=24)
+        query = select(ChatSession).where(
+            ChatSession.is_qualified == False,
+            ChatSession.last_interaction < threshold,
+            ChatSession.followup_count < 2
+        )
+        result = await db.execute(query)
+        for session in result.scalars().all():
+            prompt = "Клиент молчит 24 часа. Спроси мягко, интересно ли им еще Го."
+            ai_resp = llm.generate_response(prompt, session.history_json)
+            await wa_client.send_message(session.whatsapp_chat_id, ai_resp.reply_text)
+            session.followup_count += 1
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Reactivation Error: {e}")
 
 async def scheduler_loop():
-    """Infinite loop for the scheduler tracker."""
+    """Block 7: Protected Infinite Loop."""
     while True:
         try:
             await check_all_proactive_tasks()
         except Exception as e:
-            logger.error(f"Scheduler Loop Error: {e}")
-        await asyncio.sleep(1800) # Run every 30 minutes
+            logger.error(f"🚨 CRITICAL SCHEDULER FAILURE: {e}")
+        
+        await asyncio.sleep(1800) # Sleep 30 mins
