@@ -21,11 +21,12 @@ class Settings(BaseSettings):
     GREEN_API_API_TOKEN_INSTANCE: str = os.getenv("GREEN_API_API_TOKEN_INSTANCE", "")
     GREEN_API_HOST: str = os.getenv("GREEN_API_HOST", "https://api.green-api.com")
     
-    # amoCRM Integration
-    AMOCRM_SUBDOMAIN: str = os.getenv("AMOCRM_SUBDOMAIN", "")
-    AMOCRM_CLIENT_ID: str = os.getenv("AMOCRM_CLIENT_ID", "")
-    AMOCRM_CLIENT_SECRET: str = os.getenv("AMOCRM_CLIENT_SECRET", "")
-    AMOCRM_REDIRECT_URI: str = os.getenv("AMOCRM_REDIRECT_URI", "")
+    # AlfaCRM (s20.online) Integration
+    ALFA_SUBDOMAIN: str = os.getenv("ALFA_SUBDOMAIN", "shkolago")
+    ALFA_EMAIL: str = os.getenv("ALFA_EMAIL", "schoolgoalmaty@gmail.com")
+    ALFA_API_KEY: str = os.getenv("ALFA_API_KEY", "95a954c1-33e5-11f1-a996-3cecefbdd1ae")
+    ALFA_APP_KEY: str = os.getenv("ALFA_APP_KEY", "325702e0f2a21a95b6df99e47dc82d02")
+    ALFA_BASE_URL: str = os.getenv("ALFA_BASE_URL", "https://shkolago.s20.online")
     
     class Config:
         env_file = ".env"
