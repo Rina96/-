@@ -136,23 +136,31 @@ async def process_incoming_message(
 
 @app.post("/webhook/green-api")
 async def webhook(request: Request):
-    """FIX: Read body only ONCE via request.json()."""
+    """
+    CRITICAL FIX: Green API sends fields at ROOT level, not in 'body'.
+    Correct format: data["typeWebhook"], data["senderData"], data["messageData"]
+    Supports both formats for compatibility.
+    """
     try:
         data = await request.json()
         print(f"DEBUG: WEBHOOK ARRIVED! Keys: {list(data.keys())}")
 
-        body = data.get("body", {})
+        # Green API Webhook Endpoint format: fields at ROOT level
+        # (NOT nested in "body" — that was the bug)
+        type_webhook = data.get("typeWebhook", "")
 
-        if body.get("typeWebhook") == "incomingMessageReceived":
-            chat_id = body.get("senderData", {}).get("chatId")
-            incoming_ts = body.get("timestamp", int(time.time()))
-            msg_data = body.get("messageData", {})
+        if type_webhook == "incomingMessageReceived":
+            chat_id = data.get("senderData", {}).get("chatId")
+            incoming_ts = data.get("timestamp", int(time.time()))
+            msg_data = data.get("messageData", {})
 
             text = ""
             image_url = None
 
             if "textMessageData" in msg_data:
                 text = msg_data["textMessageData"].get("textMessage", "")
+            elif "extendedTextMessageData" in msg_data:
+                text = msg_data["extendedTextMessageData"].get("text", "")
             elif "imageMessageData" in msg_data:
                 image_url = msg_data["imageMessageData"].get("downloadUrl")
                 text = msg_data["imageMessageData"].get("caption", "Image")
@@ -163,9 +171,9 @@ async def webhook(request: Request):
                     process_incoming_message(chat_id, text, incoming_ts, image_url)
                 )
             else:
-                print(f"⚠️ IGNORED: No usable content from {chat_id}")
+                print(f"⚠️ IGNORED: typeWebhook=incomingMessageReceived but no text. chat_id={chat_id}")
         else:
-            print(f"ℹ️ NON-MESSAGE WEBHOOK: {body.get('typeWebhook')}")
+            print(f"ℹ️ NON-MESSAGE WEBHOOK: {type_webhook}")
 
         return {"status": "ok"}
     except Exception as e:
