@@ -25,7 +25,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # --- 1. LIGHTWEIGHT HEALTH CHECK (Move to top) ---
+@app.get("/")
+async def root_check():
+    """Wakes up the bot from the root URL."""
+    return {"status": "ok", "message": "Julia is awake!"}
+
 @app.get("/health")
+@app.get("/health/")
 async def health_check():
     """Ultra-fast wake-up endpoint for Render & Cron-job."""
     return {"status": "ok"}
