@@ -12,27 +12,27 @@ from integrations import alfa_crm
 from scheduler import scheduler_loop
 from contextlib import asynccontextmanager
 
-# Block 1: CRITICAL - Explicit model import for DB initialization
-from models import ChatSession
+# Block 1 CRITICAL: Models must be imported BEFORE create_all
+import models
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Initialize Database Schema (Block 1)
+    # 1. Initialize Database Schema
     try:
-        logger.info("🛠 Production DB Initialization...")
+        logger.info("🛠 Critical DB Initialization...")
         async with engine.begin() as conn:
-            # Metadata now sees ChatSession because it was imported above
+            # Metadata now correctly contains ChatSession tables
             await conn.run_sync(Base.metadata.create_all)
-        logger.success("✅ Database Tables Verified/Created.")
+        logger.success("✅ Database Schema Ready.")
     except Exception as e:
         logger.error(f"❌ DATABASE INIT ERROR: {e}")
 
-    # 2. Start Scheduler in background (Block 7 protection inside scheduler)
-    logger.info("📡 Starting Proactive Scheduler...")
+    # 2. Start Scheduler 
+    logger.info("📡 Starting Proactive Scheduler Loop...")
     loop_task = asyncio.create_task(scheduler_loop())
     yield
     loop_task.cancel()
-    logger.info("🔌 Server shutting down...")
+    logger.info("🔌 Shutting down...")
 
 app = FastAPI(lifespan=lifespan)
 
@@ -41,7 +41,7 @@ async def process_incoming_message(chat_id: str, text: str, image_url: Optional[
     Block 2: Protected Background Worker (Anti-Crash)
     """
     try:
-        # 1. Human-First Delay (15 seconds)
+        # Human-First Delay
         await asyncio.sleep(15)
         
         # Check human takeover
@@ -51,7 +51,6 @@ async def process_incoming_message(chat_id: str, text: str, image_url: Optional[
             return
 
         async with AsyncSessionLocal() as db:
-            # Block 6: Robust retrieval
             session = await crud.get_or_create_session(db, chat_id)
             await crud.add_message_to_history(db, session, role="user", text=text)
 
@@ -63,13 +62,11 @@ async def process_incoming_message(chat_id: str, text: str, image_url: Optional[
             except Exception as e:
                 logger.error(f"CRM ERROR: {e}")
 
-            # PDF Extraction
-            pdf_text = llm.extract_text_from_pdf(pdf_bytes) if pdf_bytes else None
-
             # AI Thinking
+            pdf_text = llm.extract_text_from_pdf(pdf_bytes) if pdf_bytes else None
             ai_response = llm.generate_response(user_message=text, chat_history=session.history_json, image_url=image_url, pdf_text=pdf_text)
             
-            # Update state
+            # Update state with safety
             updates = {
                 "is_paid": ai_response.is_paid_detected or session.is_paid,
                 "booked_date": ai_response.booked_date or session.booked_date,
@@ -78,7 +75,7 @@ async def process_incoming_message(chat_id: str, text: str, image_url: Optional[
             }
             await crud.update_session_state(db, session, updates)
 
-            # Response
+            # Output
             await crud.add_message_to_history(db, session, role="assistant", text=ai_response.reply_text)
             
             if ai_response.voice_response_needed:
@@ -88,7 +85,7 @@ async def process_incoming_message(chat_id: str, text: str, image_url: Optional[
                 await wa_client.send_message(chat_id, ai_response.reply_text)
 
             await db.commit()
-            logger.success(f"✅ Successfully processed message for {chat_id}")
+            logger.success(f"✅ processed {chat_id}")
             
     except Exception as e:
         logger.error(f"❌ CRITICAL ERROR in process_incoming_message: {e}")
@@ -96,17 +93,18 @@ async def process_incoming_message(chat_id: str, text: str, image_url: Optional[
 @app.post("/webhook/green-api")
 async def webhook(request: Request):
     """
-    Block 4: Defensive parsing logic for Green API webhooks.
+    Block 4: Defensive parsing + Block 8: Empty Data Filter
     """
     try:
         data = await request.json()
-        if not data:
-            return {"status": "empty"}
+        
+        # Block 8: Filter empty/invalid webhooks
+        if not data or "body" not in data:
+            return {"status": "empty or invalid"}
 
         body = data.get("body", {})
         type_webhook = body.get("typeWebhook")
         
-        # Block 4: Correct deep parsing of payloads
         if type_webhook == "incomingMessageReceived":
             chat_id = body.get("senderData", {}).get("chatId")
             msg_data = body.get("messageData", {})
@@ -115,29 +113,30 @@ async def webhook(request: Request):
             image_url = None
             pdf_bytes = None
             
-            # Robust mapping of message types
             if "textMessageData" in msg_data:
                 text = msg_data["textMessageData"].get("textMessage", "")
             elif "imageMessageData" in msg_data:
                 image_url = msg_data["imageMessageData"].get("downloadUrl")
-                text = msg_data["imageMessageData"].get("caption", "Image message")
+                text = msg_data["imageMessageData"].get("caption", "Image")
             elif "fileMessageData" in msg_data:
-                file_name = msg_data["fileMessageData"].get("fileName", "")
-                if file_name.lower().endswith(".pdf"):
+                if msg_data["fileMessageData"].get("fileName", "").lower().endswith(".pdf"):
                     pdf_bytes = await wa_client.download_file(msg_data["fileMessageData"].get("downloadUrl"))
-                    text = " Kaspi Check (PDF)"
+                    text = "PDF Check"
 
             if chat_id and (text or image_url or pdf_bytes):
-                # Block 2: Independent fire-and-forget task
+                # Block 2: Anti-crash task execution
                 asyncio.create_task(process_incoming_message(chat_id, text, image_url, pdf_bytes))
             else:
                 return {"status": "no relevant content"}
 
         return {"status": "ok"}
     except Exception as e:
-        logger.error(f"🚨 WEBHOOK PROCESSING ERROR: {e}")
-        return {"status": "error", "reason": str(e)}
+        logger.error(f"🚨 WEBHOOK ERROR: {e}")
+        return {"status": "error", "message": str(e)}
 
-@app.api_route("/{path_name:path}", methods=["GET", "POST"])
-async def catch_all(path_name: str):
-    return {"status": "ok", "message": f"Path /{path_name} caught by Julia."}
+@app.head("/health")
+@app.get("/health")
+async def health(): return {"status": "active"}
+
+@app.get("/")
+async def root(): return {"status": "online", "bot": "Julia 4.4"}

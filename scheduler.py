@@ -12,13 +12,13 @@ async def check_all_proactive_tasks():
     """Execute all maintenance tasks with Block 7 protection."""
     try:
         async with AsyncSessionLocal() as db:
-            # Each handler is independent
             await handle_sunday_broadcast(db)
             await handle_pre_event_reminders(db)
             await handle_post_event_feedback(db)
             await handle_reactivations(db)
     except Exception as e:
         logger.error(f"❌ SCHEDULER DB ERROR: {e}")
+        # Implicitly handled by the outer loop's try-except
 
 async def handle_sunday_broadcast(db):
     try:
@@ -31,11 +31,12 @@ async def handle_sunday_broadcast(db):
             )
             result = await db.execute(query)
             for session in result.scalars().all():
-                msg = f"Доброе утро, {session.client_name or ''}! ☀️ Ждем вас сегодня!"
+                msg = f"Доброе утро, {session.client_name or ''}! ☀️ Ждем вас сегодня на мастер-классе!"
                 await wa_client.send_message(session.whatsapp_chat_id, msg)
             await db.commit()
     except Exception as e:
         logger.error(f"Sunday Broadcast Error: {e}")
+        await db.rollback()
 
 async def handle_pre_event_reminders(db):
     try:
@@ -49,11 +50,12 @@ async def handle_pre_event_reminders(db):
         )
         result = await db.execute(query)
         for session in result.scalars().all():
-            await wa_client.send_message(session.whatsapp_chat_id, "Напоминаю, что МК начнется через 2 часа! ☕️")
+            await wa_client.send_message(session.whatsapp_chat_id, "Напоминаю, что ваш мастер-класс начнется через 2 часа! ☕️")
             session.is_reminder_sent = True
         await db.commit()
     except Exception as e:
         logger.error(f"Pre-event Reminder Error: {e}")
+        await db.rollback()
 
 async def handle_post_event_feedback(db):
     try:
@@ -66,11 +68,12 @@ async def handle_post_event_feedback(db):
         )
         result = await db.execute(query)
         for session in result.scalars().all():
-            await wa_client.send_message(session.whatsapp_chat_id, "Поделитесь вашими впечатлениями о мастер-классе? 😊")
+            await wa_client.send_message(session.whatsapp_chat_id, "Надеемся, вам понравился мастер-класс! Поделитесь впечатлениями? 😊")
             session.is_feedback_sent = True
         await db.commit()
     except Exception as e:
         logger.error(f"Post-event Feedback Error: {e}")
+        await db.rollback()
 
 async def handle_reactivations(db):
     try:
@@ -83,20 +86,21 @@ async def handle_reactivations(db):
         )
         result = await db.execute(query)
         for session in result.scalars().all():
-            prompt = "Клиент молчит 24 часа. Спроси мягко, интересно ли им еще Го."
+            prompt = "Клиент замолчал 24 часа назад. Коротко и вежливо уточни, актуально ли ещё обучение в школе Го."
             ai_resp = llm.generate_response(prompt, session.history_json)
             await wa_client.send_message(session.whatsapp_chat_id, ai_resp.reply_text)
             session.followup_count += 1
         await db.commit()
     except Exception as e:
         logger.error(f"Reactivation Error: {e}")
+        await db.rollback()
 
 async def scheduler_loop():
-    """Block 7: Protected Infinite Loop."""
+    """Block 6: Robust Scheduler protection (Anti-Crash)."""
     while True:
         try:
             await check_all_proactive_tasks()
         except Exception as e:
             logger.error(f"🚨 CRITICAL SCHEDULER FAILURE: {e}")
         
-        await asyncio.sleep(1800) # Sleep 30 mins
+        await asyncio.sleep(1800) # Run every 30 minutes

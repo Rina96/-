@@ -1,37 +1,35 @@
 from sqlalchemy import Column, Integer, String, DateTime, JSON, Boolean
-from sqlalchemy.orm import declarative_base
+from database import Base # CRITICAL FIX: Use the shared Base from database.py
 import datetime
-
-Base = declarative_base()
 
 class ChatSession(Base):
     """Production-grade model for storing AI sales funnel state."""
     __tablename__ = "chat_sessions"
     
     id = Column(Integer, primary_key=True, index=True)
-    whatsapp_chat_id = Column(String, unique=True, index=True, nullable=False) # Block 8: UNIQUE constraint
-    history_json = Column(JSON, default=[]) # Block 5: Dialogue memory
+    whatsapp_chat_id = Column(String, unique=True, index=True, nullable=False)
+    history_json = Column(JSON, default=[]) 
     
     # AI State Flags
     is_qualified = Column(Boolean, default=False)
     needs_human = Column(Boolean, default=False)
-    crm_lead_id = Column(String, nullable=True) # Mapping to AlfaCRM ID
+    crm_lead_id = Column(String, nullable=True) 
     
     # Booking & Funnel Progression
     booked_at = Column(DateTime, nullable=True)
-    booked_date = Column(String, nullable=True) # Readable date like "14.04 (воскресенье)"
+    booked_date = Column(String, nullable=True) 
     
     # Proactive Engine Markers
-    is_paid = Column(Boolean, default=False) # Block 5
-    is_reminder_sent = Column(Boolean, default=False) # Block 5
+    is_paid = Column(Boolean, default=False)
+    is_reminder_sent = Column(Boolean, default=False)
     is_feedback_sent = Column(Boolean, default=False)
     followup_count = Column(Integer, default=0)
     
-    # CRM Profile Data (Long-term memory)
+    # CRM Profile Data 
     client_name = Column(String, nullable=True)
     child_age = Column(Integer, nullable=True)
-    client_intent = Column(String, nullable=True) # e.g. "for self" or "for child"
+    client_intent = Column(String, nullable=True) 
     
-    # Block 5: Timestamps for the Scheduler
+    # Timestamps
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     last_interaction = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
