@@ -110,20 +110,45 @@ async def process_incoming_message(
             success = await wa_client.send_message(chat_id, ai_response.reply_text)
             print(f"{'✅' if success else '❌'} [6/7] WA send status: {success}")
 
-            # Async CRM updates (non-blocking)
+            # CRM SYNC: Create or update lead
+            if not crm_id:
+                # FIX: await directly to get the new ID and save it to session
+                print(f"📋 [6/7] Creating new CRM lead for {chat_id}...")
+                new_crm_id = await alfa_crm.sync_customer(
+                    chat_id,
+                    session.client_name or ai_response.extracted_name or "WA Lead"
+                )
+                if new_crm_id:
+                    session.crm_lead_id = str(new_crm_id)
+                    crm_id = new_crm_id
+                    print(f"✅ CRM lead created: ID={new_crm_id}")
+                    # Add first message as context in CRM
+                    asyncio.create_task(
+                        alfa_crm.add_comment(int(new_crm_id), f"Первое сообщение: {text[:100]}")
+                    )
+                else:
+                    print(f"⚠️ CRM lead creation failed — will retry next message")
+
+            # Update CRM status based on AI detections
             if crm_id:
                 if ai_response.is_paid_detected:
                     asyncio.create_task(
                         alfa_crm.set_status(int(crm_id), alfa_crm.STATUS_PAID)
                     )
+                    asyncio.create_task(
+                        alfa_crm.add_comment(int(crm_id), "✅ Оплата подтверждена через WhatsApp")
+                    )
                 elif ai_response.booked_date:
                     asyncio.create_task(
                         alfa_crm.set_status(int(crm_id), alfa_crm.STATUS_BOOKED)
                     )
-            elif not crm_id:
-                asyncio.create_task(
-                    alfa_crm.sync_customer(chat_id, session.client_name or "WA Lead")
-                )
+                    asyncio.create_task(
+                        alfa_crm.add_comment(int(crm_id), f"📅 Записан на мастер-класс: {ai_response.booked_date}")
+                    )
+                elif ai_response.is_qualified:
+                    asyncio.create_task(
+                        alfa_crm.set_status(int(crm_id), alfa_crm.STATUS_NEW)
+                    )
 
             await db.commit()
             print(f"✅ [7/7] Finished processing {chat_id}")
