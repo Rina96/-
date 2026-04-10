@@ -9,17 +9,23 @@ from green_api import wa_client
 from integrations import alfa_crm
 from scheduler import scheduler_loop
 from contextlib import asynccontextmanager
-import models
+# Block 1: CRITICAL - Explicit model import for DB initialization
+from models import ChatSession, Base
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 1. Initialize Database Schema (Block 2)
     try:
+        logger.info("🛠 Critical DB Initialization...")
         async with engine.begin() as conn:
+            # Metadata now correctly contains ChatSession tables
             await conn.run_sync(Base.metadata.create_all)
-        logger.success("✅ Database Ready (Swiss Watch Foundation)")
+        logger.success("✅ Database Schema Ready.")
     except Exception as e:
-        logger.error(f"❌ DB Init Fail: {e}")
-    
+        logger.error(f"❌ DATABASE INIT ERROR: {e}")
+
+    # 2. Start Scheduler 
+    logger.info("📡 Starting Proactive Scheduler Loop...")
     loop_task = asyncio.create_task(scheduler_loop())
     yield
     loop_task.cancel()
@@ -88,22 +94,46 @@ async def process_incoming_message(chat_id: str, text: str, image_url: Optional[
 
 @app.post("/webhook/green-api")
 async def webhook(request: Request):
+    """
+    Block 6: Defensive parsing logic for Green API webhooks.
+    """
     try:
         data = await request.json()
+        
+        # Filter empty/invalid webhooks
+        if not data or "body" not in data:
+            return {"status": "empty or invalid"}
+
         body = data.get("body", {})
-        if body.get("typeWebhook") == "incomingMessageReceived":
+        type_webhook = body.get("typeWebhook")
+        
+        if type_webhook == "incomingMessageReceived":
             chat_id = body.get("senderData", {}).get("chatId")
             msg_data = body.get("messageData", {})
-            text = msg_data.get("textMessageData", {}).get("textMessage", "")
-            if chat_id and text:
-                asyncio.create_task(process_incoming_message(chat_id, text))
+            
+            text = ""
+            image_url = None
+            
+            if "textMessageData" in msg_data:
+                text = msg_data["textMessageData"].get("textMessage", "")
+            elif "imageMessageData" in msg_data:
+                image_url = msg_data["imageMessageData"].get("downloadUrl")
+                text = msg_data["imageMessageData"].get("caption", "Image")
+
+            if chat_id and (text or image_url):
+                asyncio.create_task(process_incoming_message(chat_id, text, image_url))
+            else:
+                return {"status": "no relevant content"}
+
         return {"status": "ok"}
-    except:
-        return {"status": "error"}
+    except Exception as e:
+        logger.error(f"🚨 WEBHOOK PROCESSING ERROR: {e}")
+        return {"status": "error", "reason": str(e)}
 
 @app.get("/health")
 async def health(): return {"status": "active"}
 
-@app.route("/{full_path:path}")
-async def catch_all(request: Request, full_path: str):
-    return {"status": "ok", "message": f"Path /{full_path} handles by Julia 4.5"}
+@app.api_route("/{full_path:path}")
+async def catch_all(request: Request, full_path: str = ""):
+    """Block 3: Fixed catch-all route with default path parameter."""
+    return {"status": "ok", "message": f"Path /{full_path} handled by Julia 4.6"}

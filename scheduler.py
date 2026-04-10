@@ -9,7 +9,7 @@ from llm_engine import llm
 from green_api import wa_client
 
 async def check_all_proactive_tasks():
-    """Execute all maintenance tasks with Block 7 protection."""
+    """Execute all maintenance tasks with Block 5 protection."""
     try:
         async with AsyncSessionLocal() as db:
             await handle_sunday_broadcast(db)
@@ -18,7 +18,6 @@ async def check_all_proactive_tasks():
             await handle_reactivations(db)
     except Exception as e:
         logger.error(f"❌ SCHEDULER DB ERROR: {e}")
-        # Implicitly handled by the outer loop's try-except
 
 async def handle_sunday_broadcast(db):
     try:
@@ -68,7 +67,7 @@ async def handle_post_event_feedback(db):
         )
         result = await db.execute(query)
         for session in result.scalars().all():
-            await wa_client.send_message(session.whatsapp_chat_id, "Надеемся, вам понравился мастер-класс! Поделитесь впечатлениями? 😊")
+            await wa_client.send_message(session.whatsapp_chat_id, "Поделитесь впечатлениями о мастер-классе? 😊")
             session.is_feedback_sent = True
         await db.commit()
     except Exception as e:
@@ -86,7 +85,7 @@ async def handle_reactivations(db):
         )
         result = await db.execute(query)
         for session in result.scalars().all():
-            prompt = "Клиент замолчал 24 часа назад. Коротко и вежливо уточни, актуально ли ещё обучение в школе Го."
+            prompt = "Клиент молчит 24 часа. Спроси мягко, интересно ли им еще Го."
             ai_resp = llm.generate_response(prompt, session.history_json)
             await wa_client.send_message(session.whatsapp_chat_id, ai_resp.reply_text)
             session.followup_count += 1
@@ -96,11 +95,11 @@ async def handle_reactivations(db):
         await db.rollback()
 
 async def scheduler_loop():
-    """Block 6: Robust Scheduler protection (Anti-Crash)."""
+    """Block 5: Protected Infinite Loop (Anti-Crash)."""
     while True:
         try:
             await check_all_proactive_tasks()
         except Exception as e:
             logger.error(f"🚨 CRITICAL SCHEDULER FAILURE: {e}")
         
-        await asyncio.sleep(1800) # Run every 30 minutes
+        await asyncio.sleep(1800) # Sleep 30 mins
