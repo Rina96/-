@@ -50,11 +50,25 @@ async def root_check():
     """Wakes up the bot from the root URL."""
     return {"status": "ok", "message": "Julia is awake!"}
 
+@app.get("/health")
+@app.get("/health/")
 @app.api_route("/health", methods=["GET", "HEAD", "OPTIONS"])
 @app.api_route("/health/", methods=["GET", "HEAD", "OPTIONS"])
 async def health_check():
     """Ultra-fast wake-up endpoint for Render & Cron-job."""
     return {"status": "ok"}
+
+# --- 3. THE ULTIMATE CATCH-ALL (Diagnostic Tool) ---
+@app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"])
+async def catch_all(request: Request, path_name: str):
+    """Intercepts ANY path to wake up the bot and log what Cron-job is hitting."""
+    logger.info(f"🚩 Mystery request caught! Path: /{path_name} | Method: {request.method} | IP: {request.client.host if request.client else 'unknown'}")
+    return {
+        "status": "ok", 
+        "message": f"Julia caught your request to /{path_name}!", 
+        "path": path_name,
+        "method": request.method
+    }
 
 # --- 2. ROBUST BACKGROUND WORKER ---
 async def process_incoming_message(chat_id: str, text: str, image_url: Optional[str] = None, pdf_bytes: Optional[bytes] = None):
