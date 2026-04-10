@@ -1,6 +1,7 @@
 import httpx
 import asyncio
 from typing import Optional, List, Dict, Any
+import datetime
 from loguru import logger
 from config import settings
 
@@ -11,6 +12,24 @@ class AlfaCrmManager:
     STATUS_NEW = 1 # "Установлен контакт"
     STATUS_BOOKED = 2 # "Назначено пробное"
     STATUS_PAID = 4 # "Получена оплата"
+    
+    @staticmethod
+    def get_upcoming_weekend_dates():
+        """Рассчитывает ближайшие Сб и Вс 13:00"""
+        today = datetime.datetime.now()
+        days_until_sat = (5 - today.weekday()) % 7
+        days_until_sun = (6 - today.weekday()) % 7
+        
+        if days_until_sat == 0 and today.hour >= 13: days_until_sat = 7
+        if days_until_sun == 0 and today.hour >= 13: days_until_sun = 7
+
+        sat_date = today + datetime.timedelta(days=days_until_sat)
+        sun_date = today + datetime.timedelta(days=days_until_sun)
+
+        return {
+            "saturday": sat_date.strftime("%d.%m (суббота) в 13:00"),
+            "sunday": sun_date.strftime("%d.%m (воскресенье) в 13:00")
+        }
     
     def __init__(self):
         self.base_url = f"{settings.ALFA_BASE_URL}/v2api"
