@@ -1,15 +1,22 @@
 import asyncio
-from typing import List
 from sqlalchemy.future import select
 from loguru import logger
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from database import AsyncSessionLocal
 from models import ChatSession
 from llm_engine import llm
 from green_api import wa_client
 
+# FIX 4: Алматы timezone UTC+5
+ALMATY_TZ = timezone(timedelta(hours=5))
+
+def now_almaty() -> datetime:
+    """Returns current time in Almaty timezone (UTC+5)."""
+    return datetime.now(ALMATY_TZ).replace(tzinfo=None)
+
+
 async def check_all_proactive_tasks():
-    """Execute all maintenance tasks with Block 5 protection."""
+    """Execute all scheduler tasks with full error isolation."""
     try:
         async with AsyncSessionLocal() as db:
             await handle_sunday_broadcast(db)
@@ -19,27 +26,34 @@ async def check_all_proactive_tasks():
     except Exception as e:
         logger.error(f"❌ SCHEDULER DB ERROR: {e}")
 
+
 async def handle_sunday_broadcast(db):
+    """Sunday 11:00 Almaty — morning reminder for booked & paid clients."""
     try:
-        now = datetime.now()
+        now = now_almaty()  # FIX 4: Use Almaty time
         if now.weekday() == 6 and now.hour == 11 and now.minute < 30:
-            today_str = now.strftime("%Y-%m-%d")
+            today_str = now.strftime("%d.%m")  # Match booked_date format "19.04"
             query = select(ChatSession).where(
                 ChatSession.booked_date == today_str,
                 ChatSession.is_paid == True
             )
             result = await db.execute(query)
-            for session in result.scalars().all():
-                msg = f"Доброе утро, {session.client_name or ''}! ☀️ Ждем вас сегодня на мастер-классе!"
+            sessions = result.scalars().all()
+            for session in sessions:
+                name = session.client_name or ""
+                msg = f"Доброе утро{f', {name}' if name else ''}! ☀️ Ждем вас сегодня на мастер-классе в 13:00!"
                 await wa_client.send_message(session.whatsapp_chat_id, msg)
             await db.commit()
+            logger.info(f"📣 Sunday broadcast sent to {len(sessions)} clients")
     except Exception as e:
         logger.error(f"Sunday Broadcast Error: {e}")
         await db.rollback()
 
+
 async def handle_pre_event_reminders(db):
+    """Send reminder 2 hours before booked_at."""
     try:
-        now = datetime.now()
+        now = now_almaty()  # FIX 4: Use Almaty time
         threshold = now + timedelta(minutes=120)
         query = select(ChatSession).where(
             ChatSession.booked_at <= threshold,
@@ -48,17 +62,24 @@ async def handle_pre_event_reminders(db):
             ChatSession.is_reminder_sent == False
         )
         result = await db.execute(query)
-        for session in result.scalars().all():
-            await wa_client.send_message(session.whatsapp_chat_id, "Напоминаю, что ваш мастер-класс начнется через 2 часа! ☕️")
+        sessions = result.scalars().all()
+        for session in sessions:
+            name = session.client_name or ""
+            msg = f"{'Привет' + (f', {name}' if name else '')}! ⏰ Напоминаю — ваш мастер-класс через 2 часа. До встречи! 😊"
+            await wa_client.send_message(session.whatsapp_chat_id, msg)
             session.is_reminder_sent = True
         await db.commit()
+        if sessions:
+            logger.info(f"⏰ Pre-event reminders sent: {len(sessions)}")
     except Exception as e:
         logger.error(f"Pre-event Reminder Error: {e}")
         await db.rollback()
 
+
 async def handle_post_event_feedback(db):
+    """Ask for feedback 3 hours after booked_at."""
     try:
-        now = datetime.now()
+        now = now_almaty()  # FIX 4: Use Almaty time
         threshold = now - timedelta(minutes=180)
         query = select(ChatSession).where(
             ChatSession.booked_at <= threshold,
@@ -66,17 +87,24 @@ async def handle_post_event_feedback(db):
             ChatSession.is_feedback_sent == False
         )
         result = await db.execute(query)
-        for session in result.scalars().all():
-            await wa_client.send_message(session.whatsapp_chat_id, "Поделитесь впечатлениями о мастер-классе? 😊")
+        sessions = result.scalars().all()
+        for session in sessions:
+            name = session.client_name or ""
+            msg = f"{'Привет' + (f', {name}' if name else '')}! 😊 Как прошел мастер-класс? Поделитесь впечатлениями!"
+            await wa_client.send_message(session.whatsapp_chat_id, msg)
             session.is_feedback_sent = True
         await db.commit()
+        if sessions:
+            logger.info(f"💬 Post-event feedback sent: {len(sessions)}")
     except Exception as e:
         logger.error(f"Post-event Feedback Error: {e}")
         await db.rollback()
 
+
 async def handle_reactivations(db):
+    """Re-engage unqualified leads silent for 24 hours."""
     try:
-        now = datetime.now()
+        now = now_almaty()  # FIX 4: Use Almaty time
         threshold = now - timedelta(hours=24)
         query = select(ChatSession).where(
             ChatSession.is_qualified == False,
@@ -84,22 +112,32 @@ async def handle_reactivations(db):
             ChatSession.followup_count < 2
         )
         result = await db.execute(query)
-        for session in result.scalars().all():
-            prompt = "Клиент молчит 24 часа. Спроси мягко, интересно ли им еще Го."
-            ai_resp = llm.generate_response(prompt, session.history_json)
+        sessions = result.scalars().all()
+        for session in sessions:
+            prompt = f"Клиент молчит 24 часа. Имя: {session.client_name or 'неизвестно'}. Спроси мягко — всё ли в порядке и интересна ли им игра Го."
+            # FIX 2: Run blocking call in thread pool
+            ai_resp = await asyncio.to_thread(
+                llm.generate_response,
+                user_message=prompt,
+                chat_history=session.history_json or [],
+                client_name=session.client_name or ""
+            )
             await wa_client.send_message(session.whatsapp_chat_id, ai_resp.reply_text)
-            session.followup_count += 1
+            session.followup_count = (session.followup_count or 0) + 1
         await db.commit()
+        if sessions:
+            logger.info(f"🔄 Reactivations sent: {len(sessions)}")
     except Exception as e:
         logger.error(f"Reactivation Error: {e}")
         await db.rollback()
 
+
 async def scheduler_loop():
-    """Block 5: Protected Infinite Loop (Anti-Crash)."""
+    """Protected infinite loop — one failure never stops the scheduler."""
+    logger.info("📅 Scheduler started (30 min interval, Almaty UTC+5)")
     while True:
         try:
             await check_all_proactive_tasks()
         except Exception as e:
             logger.error(f"🚨 CRITICAL SCHEDULER FAILURE: {e}")
-        
-        await asyncio.sleep(1800) # Sleep 30 mins
+        await asyncio.sleep(1800)  # 30 minutes

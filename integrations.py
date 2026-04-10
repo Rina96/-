@@ -1,25 +1,47 @@
 import httpx
 import asyncio
-from typing import Optional, List, Dict, Any
+import time
+from typing import Optional, Dict, Any
 import datetime
 from loguru import logger
 from config import settings
 
+
 class AlfaCrmManager:
-    """Enterprise-grade connector for AlfaCRM (s20.online) with Swiss reliability."""
-    
+    """Enterprise-grade AlfaCRM connector with token caching and fail-safe."""
+
     BRANCH_ID = 1
     STATUS_NEW = 1
     STATUS_BOOKED = 2
     STATUS_PAID = 4
-    
+
+    # FIX 5: Token cache — avoid re-login on every request
+    _token: Optional[str] = None
+    _token_expires_at: float = 0.0
+    TOKEN_TTL = 3600  # 1 hour
+
     def __init__(self):
         self.base_url = f"{settings.ALFA_BASE_URL}/v2api"
         self.email = settings.ALFA_EMAIL
         self.api_key = settings.ALFA_API_KEY
         self.app_key = settings.ALFA_APP_KEY
-        self.token = None
         self._lock = asyncio.Lock()
+
+    @staticmethod
+    def get_upcoming_weekend_dates():
+        """Calculates nearest Saturday and Sunday at 13:00 (Almaty UTC+5)."""
+        from datetime import timezone, timedelta
+        now = datetime.datetime.now(timezone(timedelta(hours=5)))
+        days_until_sat = (5 - now.weekday()) % 7 or 7
+        days_until_sun = (6 - now.weekday()) % 7 or 7
+
+        sat = now + datetime.timedelta(days=days_until_sat)
+        sun = now + datetime.timedelta(days=days_until_sun)
+
+        return {
+            "saturday": sat.strftime("%d.%m (суббота) в 13:00"),
+            "sunday": sun.strftime("%d.%m (воскресенье) в 13:00")
+        }
 
     async def _login(self) -> bool:
         url = f"{self.base_url}/auth/login"
@@ -27,32 +49,40 @@ class AlfaCrmManager:
         headers = {"X-App-Key": self.app_key}
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.post(url, json=payload, headers=headers, timeout=5.0)
-                if response.status_code == 200:
-                    self.token = response.json().get("token")
+                r = await client.post(url, json=payload, headers=headers, timeout=5.0)
+                if r.status_code == 200:
+                    AlfaCrmManager._token = r.json().get("token")
+                    # FIX 5: Cache token with TTL
+                    AlfaCrmManager._token_expires_at = time.time() + self.TOKEN_TTL
+                    logger.success("🔑 AlfaCRM login successful, token cached for 1h")
                     return True
+                logger.error(f"❌ CRM Login failed: {r.status_code}")
                 return False
             except Exception as e:
                 logger.error(f"❌ CRM Auth Fail: {e}")
                 return False
 
     async def get_headers(self) -> Dict[str, str]:
+        """FIX 5: Only re-login when token is expired or missing."""
         async with self._lock:
-            if not self.token: await self._login()
+            if not AlfaCrmManager._token or time.time() >= AlfaCrmManager._token_expires_at:
+                await self._login()
         return {
-            "X-ALFACRM-TOKEN": self.token,
+            "X-ALFACRM-TOKEN": AlfaCrmManager._token or "",
             "X-App-Key": self.app_key,
             "Content-Type": "application/json"
         }
 
     async def get_customer_by_phone(self, phone: str) -> Optional[Dict[str, Any]]:
-        """Safe lookup with timeout."""
+        """Safe lead lookup with 5s timeout."""
         try:
             headers = await self.get_headers()
             url = f"{self.base_url}/{self.BRANCH_ID}/customer/index"
             clean_phone = "".join(filter(str.isdigit, phone))[-10:]
             async with httpx.AsyncClient() as client:
-                r = await client.post(url, headers=headers, json={"phone": clean_phone}, timeout=5.0)
+                r = await client.post(
+                    url, headers=headers, json={"phone": clean_phone}, timeout=5.0
+                )
                 if r.status_code == 200:
                     items = r.json().get("items", [])
                     return items[0] if items else None
@@ -60,63 +90,55 @@ class AlfaCrmManager:
         except Exception as e:
             logger.error(f"⚠️ CRM Lookup Fail: {e}")
             return None
-    async def sync_customer(self, phone: str, name: str = "WA Lead"):
+
+    async def sync_customer(self, phone: str, name: str = "WA Lead") -> Optional[int]:
+        """Find or create lead, return CRM ID."""
         existing = await self.get_customer_by_phone(phone)
-        if existing: return existing.get("id")
+        if existing:
+            return existing.get("id")
         try:
             headers = await self.get_headers()
             url = f"{self.base_url}/{self.BRANCH_ID}/customer/create"
-            # Format phone as 7XXXXXXXXXX
-            clean_phone = "".join(filter(str.isdigit, phone))
-            if len(clean_phone) == 10: clean_phone = "7" + clean_phone
-            elif len(clean_phone) == 11 and clean_phone.startswith("8"): clean_phone = "7" + clean_phone[1:]
-            
+            clean_phone = "".join(filter(str.isdigit, phone))[-10:]
             payload = {
-                "name": name, 
-                "is_lead": 1, 
-                "phone": [clean_phone], 
-                "branch_ids": [self.BRANCH_ID],
-                "lead_status_id": self.STATUS_NEW,
-                "legal_type": 1, # Physical person
-                "is_study": 0    # Not yet studying (Lead)
+                "name": name,
+                "is_lead": 1,
+                "phone": [clean_phone],
+                "lead_status_id": self.STATUS_NEW
             }
             async with httpx.AsyncClient() as client:
                 r = await client.post(url, headers=headers, json=payload, timeout=5.0)
                 if r.status_code == 200:
-                    return r.json().get("model", {}).get("id")
-                else:
-                    logger.error(f"❌ CRM Sync Error {r.status_code}: {r.text}")
+                    new_id = r.json().get("model", {}).get("id")
+                    logger.success(f"🆕 CRM lead created: {new_id}")
+                    return new_id
         except Exception as e:
-            logger.error(f"❌ CRM Sync Exception: {e}")
+            logger.error(f"⚠️ CRM Create Fail: {e}")
         return None
 
-
     async def set_status(self, customer_id: int, status_id: int):
+        """Update lead funnel stage."""
         try:
             headers = await self.get_headers()
             url = f"{self.base_url}/{self.BRANCH_ID}/customer/update/{customer_id}"
             async with httpx.AsyncClient() as client:
-                await client.post(url, headers=headers, json={"lead_status_id": status_id}, timeout=5.0)
-        except: pass
+                await client.post(
+                    url, headers=headers, json={"lead_status_id": status_id}, timeout=5.0
+                )
+                logger.info(f"📈 CRM lead {customer_id} → status {status_id}")
+        except Exception as e:
+            logger.error(f"⚠️ CRM Status Fail: {e}")
 
     async def add_comment(self, customer_id: int, text: str):
+        """Add comment to lead profile."""
         try:
             headers = await self.get_headers()
             url = f"{self.base_url}/{self.BRANCH_ID}/communication/create"
-            payload = {"customer_id": customer_id, "type": 1, "text": f"🤖 Юлия (ИИ): {text}"}
+            payload = {"customer_id": customer_id, "type": 1, "text": f"🤖 Юлия: {text}"}
             async with httpx.AsyncClient() as client:
                 await client.post(url, headers=headers, json=payload, timeout=5.0)
-        except: pass
+        except Exception as e:
+            logger.error(f"⚠️ CRM Comment Fail: {e}")
 
-    def get_upcoming_weekend_dates(self) -> Dict[str, str]:
-        """Returns the dates of the next Saturday and Sunday."""
-        today = datetime.date.today()
-        saturday = today + datetime.timedelta((5 - today.weekday()) % 7)
-        if saturday == today: saturday += datetime.timedelta(7)
-        sunday = saturday + datetime.timedelta(1)
-        return {
-            "saturday": saturday.strftime("%d.%m"),
-            "sunday": sunday.strftime("%d.%m")
-        }
 
 alfa_crm = AlfaCrmManager()

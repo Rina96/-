@@ -1,6 +1,5 @@
 import json
 import os
-import httpx
 import fitz  # PyMuPDF
 from typing import List, Optional
 from loguru import logger
@@ -8,7 +7,7 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 from config import settings
 
-# Initialize OpenAI Client (Master Brain)
+# Initialize OpenAI Client
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 class AIResponseSchema(BaseModel):
@@ -37,65 +36,71 @@ class LlmEngine:
             logger.error(f"Error loading KB: {e}")
             return {}
 
-    def _build_system_prompt(self) -> str:
-        # Import dates dynamically
+    def _build_system_prompt(self, client_name: str = "") -> str:
+        """FIX 1: Accept client_name to personalize the prompt."""
         from integrations import alfa_crm
         dates = alfa_crm.get_upcoming_weekend_dates()
         
         school = self.kb.get("school", {})
         products = self.kb.get("products", {})
         tunnels = self.kb.get("tunnel_logic", {})
-        
-        return f"""
-ТЫ: Юлия, элитный менеджер школы '{school.get('name', 'School Go')}' (Алматы), глубоко интегрированная с AlfaCRM.
 
+        # Build personalization block
+        client_context = ""
+        if client_name and client_name not in ("WA Lead", "WhatsApp Lead", ""):
+            client_context = f"\nКЛИЕНТ: Тебя уже знают как {client_name}. Обращайся к нему по имени.\n"
+
+        return f"""
+ТЫ: Юлия, элитный менеджер школы '{school.get('name', 'School Go')}' (Алматы).
+{client_context}
 МИССИЯ: {school.get('mission', '')}
 
-ТВОИ ТУННЕЛИ ПРОДАЖ (Success Path):
+ТУННЕЛИ ПРОДАЖ:
 1. {tunnels.get('path_1', '')}
 2. {tunnels.get('path_2', '')}
 3. {tunnels.get('path_3', '')}
 
 ЦЕЛЬ: {tunnels.get('success_goal', '')}
 
-ТВОИ ПРОДУКТЫ:
+ПРОДУКТЫ:
 - Взрослые: {products.get('adult', {}).get('name')}, {products.get('adult', {}).get('price')} тг. {products.get('adult', {}).get('value_prop')}
 - Дети: {products.get('child', {}).get('name')}, {products.get('child', {}).get('price')} тг. {products.get('child', {}).get('value_prop')}
 
+ВОЗРАЖЕНИЯ:
+- Сложно? → "За 90 минут уже сыграете первые партии."
+- Нет времени? → "Есть онлайн-формат или индивидуальное время."
+- Дорого? → "Можно прийти с другом — на двоих 5000 тг."
+
 ПРАВИЛА:
-1. Вести клиента по воронке продаж: Квалификация -> Запись -> Оплата.
-2. Все твои действия (подтверждение даты `booked_date`, детекция оплаты `is_paid_detected`) автоматически синхронизируются с CRM.
-3. Тон: Friendly Woman (заботливая, но профессиональная). Один шаг за раз.
-4. Даты на выбор: {dates['saturday']} или {dates['sunday']}.
-5. Выход: Только JSON соответствующий AIResponseSchema. 
-ПРИМЕР: {{"reply_text": "Привет!...", "booked_date": "15.04", "is_qualified": true}}
-ОБЯЗАТЕЛЬНО используй ключ 'reply_text' для ответа.
+1. Веди клиента: Квалификация → Запись → Оплата.
+2. Тон: заботливая и профессиональная женщина. Один шаг за раз.
+3. Даты: {dates['saturday']} или {dates['sunday']}.
+4. Выход: ТОЛЬКО JSON по схеме AIResponseSchema.
+ПРИМЕР: {{"reply_text": "Привет!...", "booked_date": "19.04", "is_qualified": true}}
+ОБЯЗАТЕЛЬНО используй ключ 'reply_text'.
 """
 
     def extract_text_from_pdf(self, pdf_bytes: bytes) -> str:
-        """Extracts text from a Kaspi PDF check."""
         try:
             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-            text = ""
-            for page in doc:
-                text += page.get_text()
-            return text
+            return "".join(page.get_text() for page in doc)
         except Exception as e:
             logger.error(f"PDF Parse Error: {e}")
             return ""
 
-    async def generate_voice(self, text: str) -> bytes:
-        """Converts text to speech using OpenAI TTS."""
-        try:
-            response = client.audio.speech.create(model="tts-1", voice="nova", input=text)
-            return response.read()
-        except Exception as e:
-            logger.error(f"TTS Error: {e}")
-            return b""
-
-    def generate_response(self, user_message: str, chat_history: List[dict], image_url: Optional[str] = None, pdf_text: Optional[str] = None) -> AIResponseSchema:
-        """Generates a structured response using GPT-4o."""
-        system_instruction = self._build_system_prompt()
+    def generate_response(
+        self,
+        user_message: str,
+        chat_history: List[dict],
+        image_url: Optional[str] = None,
+        pdf_text: Optional[str] = None,
+        client_name: str = ""  # FIX 1: Accept client name
+    ) -> AIResponseSchema:
+        """
+        FIX 2: Kept as sync so it can be safely run via asyncio.to_thread().
+        FIX 1: client_name is now injected into the system prompt.
+        """
+        system_instruction = self._build_system_prompt(client_name=client_name)
         
         full_user_content = user_message
         if pdf_text:
@@ -107,19 +112,20 @@ class LlmEngine:
             
         messages = [{"role": "system", "content": system_instruction}]
         for msg in chat_history:
-            messages.append({"role": "user" if msg["role"] == "user" else "assistant", "content": msg["text"]})
-        
+            role = "user" if msg.get("role") == "user" else "assistant"
+            messages.append({"role": role, "content": msg.get("text", "")})
         messages.append({"role": "user", "content": content})
 
         try:
             response = client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                response_format={ "type": "json_object" },
-                temperature=0.2
+                response_format={"type": "json_object"},
+                temperature=0.2,
+                max_tokens=500
             )
             data = json.loads(response.choices[0].message.content)
-            logger.success(f"🧠 GPT-4o responded for message")
+            logger.success("🧠 GPT-4o responded successfully")
             return AIResponseSchema(**data)
         except Exception as e:
             logger.error(f"OpenAI API Error: {e}")

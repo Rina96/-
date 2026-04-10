@@ -1,5 +1,6 @@
 import asyncio
 import time
+import datetime
 from typing import Optional
 from loguru import logger
 from fastapi import FastAPI, Request
@@ -11,13 +12,14 @@ from integrations import alfa_crm
 from scheduler import scheduler_loop
 from contextlib import asynccontextmanager
 
-# CRITICAL: Import models BEFORE Base to ensure tables are registered
+# CRITICAL: Import models before Base to ensure tables are registered
 from models import ChatSession
-from database import Base  # Single source of truth for Base
+from database import Base
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("🚀 JULIA 4.6 STARTING...")
+    print("🚀 JULIA 4.7 STARTING...")
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -26,96 +28,129 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"❌ DATABASE ERROR: {e}")
         logger.error(f"❌ DB Init Fail: {e}")
-    
+
     asyncio.create_task(scheduler_loop())
     yield
     print("🔌 JULIA SHUTTING DOWN...")
 
+
 app = FastAPI(lifespan=lifespan)
 
-async def process_incoming_message(chat_id: str, text: str, incoming_ts: int, image_url: Optional[str] = None):
+
+async def process_incoming_message(
+    chat_id: str,
+    text: str,
+    incoming_ts: int,
+    image_url: Optional[str] = None
+):
     """
-    SWISS WATCH CORE: Resilient Message Pipeline 4.6 (FULLY FIXED)
+    SWISS WATCH CORE: Resilient Message Pipeline 4.7 (ALL BUGS FIXED)
+    FIX 2: generate_response runs in thread pool (non-blocking)
+    FIX 3: booked_at is set when AI detects booked_date
+    FIX 1: client_name passed to AI for personalized responses
     """
     try:
         print(f"⚡️ [1/7] Processing message for {chat_id}...")
-        
-        # Check Human Takeover (with timestamp logic)
+
+        # Check Human Takeover (timestamp-based)
         cloud_history = await wa_client.get_chat_history(chat_id, count=5)
-        
-        human_replied = False
-        for msg in cloud_history:
-            if msg.get("role") == "assistant" and msg.get("ts", 0) > incoming_ts:
-                human_replied = True
-                break
-        
+
+        human_replied = any(
+            msg.get("role") == "assistant" and msg.get("ts", 0) > incoming_ts
+            for msg in cloud_history
+        )
+
         if human_replied:
-            print(f"🛡 [2/7] Human takeover detected in {chat_id}. Julia silent.")
+            print(f"🛡 Human takeover detected in {chat_id}. Julia silent.")
             return
 
-        print(f"🧠 [3/7] Accessing context for {chat_id}...")
+        print(f"🧠 [2/7] Fetching context for {chat_id}...")
         async with AsyncSessionLocal() as db:
-            # CRM CONTEXT (fail-safe)
+            # CRM CONTEXT (fail-safe, with name)
             crm_lead = await alfa_crm.get_customer_by_phone(chat_id)
-            crm_name = crm_lead.get("name", "WA Lead") if crm_lead else "WA Lead"
+            crm_name = crm_lead.get("name", "") if crm_lead else ""
             crm_id = crm_lead.get("id") if crm_lead else None
-            
-            # DB & History
+
+            # DB Session
             session = await crud.get_or_create_session(db, chat_id)
             if crm_id:
                 session.crm_lead_id = str(crm_id)
+
+            # FIX 1: Save name to DB session for future reference
+            if crm_name and not session.client_name:
+                session.client_name = crm_name
+
             await crud.add_message_to_history(db, session, role="user", text=text)
 
-            # FIX #3: Correct call signature - no metadata parameter
-            print(f"🤖 [4/7] Generating AI response for {chat_id}...")
             final_history = cloud_history if cloud_history else (session.history_json or [])
-            ai_response = llm.generate_response(
+
+            # FIX 2: Run blocking OpenAI call in thread pool — non-blocking
+            print(f"🤖 [3/7] Generating AI response for {chat_id}...")
+            ai_response = await asyncio.to_thread(
+                llm.generate_response,
                 user_message=text,
                 chat_history=final_history,
-                image_url=image_url
+                image_url=image_url,
+                client_name=crm_name or session.client_name or ""
             )
-            
-            print(f"💬 [5/7] Sending response to {chat_id}: '{ai_response.reply_text[:30]}...'")
-            await crud.add_message_to_history(db, session, role="assistant", text=ai_response.reply_text)
-            
-            success = await wa_client.send_message(chat_id, ai_response.reply_text)
-            print(f"{'✅' if success else '❌'} [6/7] Send status: {success}")
 
-            # Async CRM update (non-blocking)
-            if crm_id and ai_response.is_paid_detected:
-                asyncio.create_task(alfa_crm.set_status(int(crm_id), alfa_crm.STATUS_PAID))
+            print(f"💬 [4/7] Sending response to {chat_id}: '{ai_response.reply_text[:40]}...'")
+            await crud.add_message_to_history(db, session, role="assistant", text=ai_response.reply_text)
+
+            # FIX 3: Set booked_at when AI detects booking date
+            if ai_response.booked_date and not session.booked_at:
+                session.booked_date = ai_response.booked_date
+                session.booked_at = datetime.datetime.utcnow()
+                print(f"📅 [5/7] Booking set for {chat_id}: {ai_response.booked_date}")
+
+            # FIX 1: Save extracted name from AI if CRM didn't have one
+            if ai_response.extracted_name and not session.client_name:
+                session.client_name = ai_response.extracted_name
+
+            success = await wa_client.send_message(chat_id, ai_response.reply_text)
+            print(f"{'✅' if success else '❌'} [6/7] WA send status: {success}")
+
+            # Async CRM updates (non-blocking)
+            if crm_id:
+                if ai_response.is_paid_detected:
+                    asyncio.create_task(
+                        alfa_crm.set_status(int(crm_id), alfa_crm.STATUS_PAID)
+                    )
+                elif ai_response.booked_date:
+                    asyncio.create_task(
+                        alfa_crm.set_status(int(crm_id), alfa_crm.STATUS_BOOKED)
+                    )
             elif not crm_id:
-                asyncio.create_task(alfa_crm.sync_customer(chat_id, crm_name))
+                asyncio.create_task(
+                    alfa_crm.sync_customer(chat_id, session.client_name or "WA Lead")
+                )
 
             await db.commit()
             print(f"✅ [7/7] Finished processing {chat_id}")
             logger.success(f"✅ Cycle complete for {chat_id}")
 
     except Exception as e:
-        print(f"🚨 CRITICAL WORKER ERROR: {e}")
-        logger.error(f"🚨 Worker error for {chat_id}: {e}")
+        print(f"🚨 CRITICAL WORKER ERROR for {chat_id}: {e}")
+        logger.error(f"🚨 Worker error: {e}")
 
 
 @app.post("/webhook/green-api")
 async def webhook(request: Request):
-    """
-    FIX #2: Read body only ONCE via request.json() to avoid stream exhaustion.
-    """
+    """FIX: Read body only ONCE via request.json()."""
     try:
-        # FIX: Read JSON only once, do NOT call request.body() first
         data = await request.json()
         print(f"DEBUG: WEBHOOK ARRIVED! Keys: {list(data.keys())}")
-        
+
         body = data.get("body", {})
-        
+
         if body.get("typeWebhook") == "incomingMessageReceived":
             chat_id = body.get("senderData", {}).get("chatId")
             incoming_ts = body.get("timestamp", int(time.time()))
             msg_data = body.get("messageData", {})
-            
+
             text = ""
             image_url = None
-            
+
             if "textMessageData" in msg_data:
                 text = msg_data["textMessageData"].get("textMessage", "")
             elif "imageMessageData" in msg_data:
@@ -123,7 +158,7 @@ async def webhook(request: Request):
                 text = msg_data["imageMessageData"].get("caption", "Image")
 
             if chat_id and (text or image_url):
-                print(f"📩 RELEVANT MESSAGE from {chat_id}: '{text[:30]}'")
+                print(f"📩 RELEVANT MESSAGE from {chat_id}: '{text[:40]}'")
                 asyncio.create_task(
                     process_incoming_message(chat_id, text, incoming_ts, image_url)
                 )
@@ -131,7 +166,7 @@ async def webhook(request: Request):
                 print(f"⚠️ IGNORED: No usable content from {chat_id}")
         else:
             print(f"ℹ️ NON-MESSAGE WEBHOOK: {body.get('typeWebhook')}")
-        
+
         return {"status": "ok"}
     except Exception as e:
         print(f"🚨 WEBHOOK ERROR: {e}")
@@ -141,9 +176,9 @@ async def webhook(request: Request):
 
 @app.get("/health")
 async def health():
-    return {"status": "active", "version": "4.6"}
+    return {"status": "active", "version": "4.7"}
 
 
 @app.api_route("/{full_path:path}", methods=["GET", "POST", "HEAD"])
 async def catch_all(request: Request, full_path: str = ""):
-    return {"status": "ok", "path": full_path, "bot": "Julia 4.6"}
+    return {"status": "ok", "path": full_path, "bot": "Julia 4.7"}
