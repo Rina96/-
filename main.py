@@ -58,17 +58,6 @@ async def health_check():
     """Ultra-fast wake-up endpoint for Render & Cron-job."""
     return {"status": "ok"}
 
-# --- 3. THE ULTIMATE CATCH-ALL (Diagnostic Tool) ---
-@app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"])
-async def catch_all(request: Request, path_name: str):
-    """Intercepts ANY path to wake up the bot and log what Cron-job is hitting."""
-    logger.info(f"🚩 Mystery request caught! Path: /{path_name} | Method: {request.method} | IP: {request.client.host if request.client else 'unknown'}")
-    return {
-        "status": "ok", 
-        "message": f"Julia caught your request to /{path_name}!", 
-        "path": path_name,
-        "method": request.method
-    }
 
 # --- 2. ROBUST BACKGROUND WORKER ---
 async def process_incoming_message(chat_id: str, text: str, image_url: Optional[str] = None, pdf_bytes: Optional[bytes] = None):
@@ -130,6 +119,7 @@ async def webhook(request: Request):
     """Reliable webhook receiver that fires-and-forgets to avoid blocking."""
     try:
         data = await request.json()
+        logger.info(f"📩 Webhook received: {data.get('body', {}).get('typeWebhook')}")
         body = data.get("body", {})
         type_webhook = body.get("typeWebhook")
         
@@ -162,3 +152,16 @@ async def webhook(request: Request):
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         return {"status": "error"}
+
+# --- 3. THE ULTIMATE CATCH-ALL (Diagnostic Tool) ---
+# MUST BE AT THE VERY BOTTOM OF THE FILE
+@app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"])
+async def catch_all(request: Request, path_name: str):
+    """Intercepts ANY path to wake up the bot and log what Cron-job is hitting."""
+    logger.info(f"🚩 Mystery request caught! Path: /{path_name} | Method: {request.method} | IP: {request.client.host if request.client else 'unknown'}")
+    return {
+        "status": "ok", 
+        "message": f"Julia caught your request to /{path_name}!", 
+        "path": path_name,
+        "method": request.method
+    }
