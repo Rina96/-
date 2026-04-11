@@ -211,7 +211,7 @@ async def webhook(request: Request):
 
 @app.get("/health")
 async def health():
-    return {"status": "active", "version": "4.7"}
+    return {"status": "active", "version": "5.0-Intelligence"}
 
 
 @app.api_route("/{full_path:path}", methods=["GET", "POST", "HEAD"])
