@@ -129,11 +129,12 @@ class AlfaCrmManager:
             }
             async with httpx.AsyncClient(verify=False) as client:
                 r = await client.post(url, headers=headers, json=payload, timeout=5.0)
-                logger.debug(f"➕ CRM Create Lead Response: {r.status_code} {r.text}")
                 if r.status_code == 200:
                     new_id = r.json().get("model", {}).get("id")
                     logger.success(f"🆕 CRM lead created: {new_id}")
                     return new_id
+                else:
+                    logger.error(f"❌ CRM Create Fail ({r.status_code}): {r.text}")
         except Exception as e:
             logger.error(f"⚠️ CRM Create Fail: {e}")
         return None
