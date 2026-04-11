@@ -190,13 +190,15 @@ async def webhook(request: Request):
                 image_url = msg_data["imageMessageData"].get("downloadUrl")
                 text = msg_data["imageMessageData"].get("caption", "Image")
 
-            if chat_id and (text or image_url):
+            if chat_id and "@c.us" in chat_id and (text or image_url):
                 print(f"📩 RELEVANT MESSAGE from {chat_id}: '{text[:40]}'")
                 asyncio.create_task(
                     process_incoming_message(chat_id, text, incoming_ts, image_url)
                 )
+            elif chat_id and "@g.us" in chat_id:
+                print(f"🛡 IGNORED: Group message from {chat_id}")
             else:
-                print(f"⚠️ IGNORED: typeWebhook=incomingMessageReceived but no text. chat_id={chat_id}")
+                print(f"⚠️ IGNORED: Non-individual chat ({chat_id}) or no content.")
         else:
             print(f"ℹ️ NON-MESSAGE WEBHOOK: {type_webhook}")
 
