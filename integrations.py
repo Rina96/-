@@ -92,10 +92,26 @@ class AlfaCrmManager:
             return None
 
     async def sync_customer(self, phone: str, name: str = "WA Lead") -> Optional[int]:
-        """Find or create lead, return CRM ID."""
+        """Find or create lead, return CRM ID. Updates name if it was a placeholder."""
         existing = await self.get_customer_by_phone(phone)
+        
         if existing:
-            return existing.get("id")
+            customer_id = existing.get("id")
+            current_name = existing.get("name", "")
+            
+            # If current name is a placeholder and we have a real name, update it
+            if name not in ("WA Lead", "WhatsApp Lead", "") and \
+               current_name in ("WA Lead", "WhatsApp Lead", "", "Lead"):
+                logger.info(f"🔄 Updating CRM lead {customer_id} name: {current_name} -> {name}")
+                try:
+                    headers = await self.get_headers()
+                    url = f"{self.base_url}/{self.BRANCH_ID}/customer/update/{customer_id}"
+                    async with httpx.AsyncClient(verify=False) as client:
+                        await client.post(url, headers=headers, json={"name": name}, timeout=5.0)
+                except Exception as e:
+                    logger.error(f"⚠️ CRM Name Update Fail: {e}")
+            return customer_id
+
         try:
             headers = await self.get_headers()
             url = f"{self.base_url}/{self.BRANCH_ID}/customer/create"

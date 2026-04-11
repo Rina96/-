@@ -75,8 +75,9 @@ class LlmEngine:
 1. Веди клиента: Квалификация → Запись → Оплата.
 2. Тон: заботливая и профессиональная женщина. Один шаг за раз.
 3. Даты: {dates['saturday']} или {dates['sunday']}.
-4. Выход: ТОЛЬКО JSON по схеме AIResponseSchema.
-ПРИМЕР: {{"reply_text": "Привет!...", "booked_date": "19.04", "is_qualified": true}}
+4. ИМЯ: Если клиент назвал свое имя или оно есть в истории — ОБЯЗАТЕЛЬНО верни его в поле 'extracted_name'.
+5. Выход: ТОЛЬКО JSON по схеме AIResponseSchema.
+ПРИМЕР: {{"reply_text": "Привет!...", "booked_date": "19.04", "is_qualified": true, "extracted_name": "Иван"}}
 ОБЯЗАТЕЛЬНО используй ключ 'reply_text'.
 """
 
