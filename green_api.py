@@ -18,7 +18,7 @@ class GreenApiManager:
     async def send_message(self, chat_id: str, message: str) -> bool:
         url = self._get_url("sendMessage")
         payload = {"chatId": chat_id, "message": message}
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=False) as client:
             try:
                 r = await client.post(url, json=payload, timeout=10.0)
                 return r.status_code == 200
@@ -30,7 +30,7 @@ class GreenApiManager:
         """Cloud memory with timestamps for sophisticated human-takeover checks."""
         url = self._get_url("getChatHistory")
         payload = {"chatId": chat_id, "count": count}
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=False) as client:
             try:
                 r = await client.post(url, json=payload, timeout=10.0)
                 if r.status_code == 200:
@@ -52,7 +52,7 @@ class GreenApiManager:
     async def send_file(self, chat_id: str, file_path: str, caption: str = "") -> bool:
         url = self._get_url("sendFileByUpload")
         file_name = os.path.basename(file_path)
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=False) as client:
             try:
                 files = {'file': (file_name, open(file_path, 'rb'), 'application/octet-stream')}
                 data = {'chatId': chat_id, 'caption': caption}
@@ -63,7 +63,7 @@ class GreenApiManager:
                 return False
 
     async def download_file(self, download_url: str) -> bytes:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=False) as client:
             r = await client.get(download_url)
             return r.content
 

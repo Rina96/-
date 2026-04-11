@@ -47,7 +47,7 @@ class AlfaCrmManager:
         url = f"{self.base_url}/auth/login"
         payload = {"email": self.email, "api_key": self.api_key}
         headers = {"X-App-Key": self.app_key}
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=False) as client:
             try:
                 r = await client.post(url, json=payload, headers=headers, timeout=5.0)
                 if r.status_code == 200:
@@ -79,7 +79,7 @@ class AlfaCrmManager:
             headers = await self.get_headers()
             url = f"{self.base_url}/{self.BRANCH_ID}/customer/index"
             clean_phone = "".join(filter(str.isdigit, phone))[-10:]
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=False) as client:
                 r = await client.post(
                     url, headers=headers, json={"phone": clean_phone}, timeout=5.0
                 )
@@ -106,7 +106,7 @@ class AlfaCrmManager:
                 "phone": [clean_phone],
                 "lead_status_id": self.STATUS_NEW
             }
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=False) as client:
                 r = await client.post(url, headers=headers, json=payload, timeout=5.0)
                 if r.status_code == 200:
                     new_id = r.json().get("model", {}).get("id")
@@ -121,7 +121,7 @@ class AlfaCrmManager:
         try:
             headers = await self.get_headers()
             url = f"{self.base_url}/{self.BRANCH_ID}/customer/update/{customer_id}"
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=False) as client:
                 await client.post(
                     url, headers=headers, json={"lead_status_id": status_id}, timeout=5.0
                 )
@@ -135,7 +135,7 @@ class AlfaCrmManager:
             headers = await self.get_headers()
             url = f"{self.base_url}/{self.BRANCH_ID}/communication/create"
             payload = {"customer_id": customer_id, "type": 1, "text": f"🤖 Юлия: {text}"}
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=False) as client:
                 await client.post(url, headers=headers, json=payload, timeout=5.0)
         except Exception as e:
             logger.error(f"⚠️ CRM Comment Fail: {e}")
