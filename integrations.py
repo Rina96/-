@@ -5,9 +5,10 @@ from typing import Optional, Dict, Any
 import datetime
 from loguru import logger
 from config import settings
+from crm_base import BaseCRMAdapter, CRMLead
 
 
-class AlfaCrmManager:
+class AlfaCrmManager(BaseCRMAdapter):
     """Enterprise-grade AlfaCRM connector with token caching and fail-safe."""
 
     BRANCH_ID = 1
@@ -20,11 +21,21 @@ class AlfaCrmManager:
     _token_expires_at: float = 0.0
     TOKEN_TTL = 3600  # 1 hour
 
-    def __init__(self):
-        self.base_url = f"{settings.ALFA_BASE_URL}/v2api"
-        self.email = settings.ALFA_EMAIL
-        self.api_key = settings.ALFA_API_KEY
-        self.app_key = settings.ALFA_APP_KEY
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """Initialize AlfaCRM adapter with config or use env variables."""
+        if config is None:
+            config = {
+                "base_url": settings.ALFA_BASE_URL,
+                "email": settings.ALFA_EMAIL,
+                "api_key": settings.ALFA_API_KEY,
+                "app_key": settings.ALFA_APP_KEY
+            }
+
+        super().__init__(config)
+        self.base_url = f"{config.get('base_url', settings.ALFA_BASE_URL)}/v2api"
+        self.email = config.get("email", settings.ALFA_EMAIL)
+        self.api_key = config.get("api_key", settings.ALFA_API_KEY)
+        self.app_key = config.get("app_key", settings.ALFA_APP_KEY)
         self._lock = asyncio.Lock()
 
     @staticmethod
@@ -155,6 +166,70 @@ class AlfaCrmManager:
                 await client.post(url, headers=headers, json=payload, timeout=5.0)
         except Exception as e:
             logger.error(f"⚠️ CRM Comment Fail: {e}")
+
+    # Implementation of BaseCRMAdapter abstract methods
+    async def authenticate(self) -> bool:
+        """Authenticate with AlfaCRM. Alias for _login."""
+        return await self._login()
+
+    async def get_lead_by_phone(self, phone: str) -> Optional[CRMLead]:
+        """Fetch lead by phone number (implements BaseCRMAdapter)."""
+        customer = await self.get_customer_by_phone(phone)
+        if customer:
+            return CRMLead(
+                id=str(customer.get("id")),
+                phone=phone,
+                name=customer.get("name", ""),
+                email=customer.get("email"),
+                custom_fields=customer
+            )
+        return None
+
+    async def create_lead(self, name: str, phone: str, email: Optional[str] = None) -> Optional[str]:
+        """Create new lead in AlfaCRM (implements BaseCRMAdapter)."""
+        new_id = await self.sync_customer(phone, name)
+        return str(new_id) if new_id else None
+
+    async def update_lead(self, lead_id: str, updates: Dict[str, Any]) -> bool:
+        """Update lead in AlfaCRM (implements BaseCRMAdapter)."""
+        try:
+            headers = await self.get_headers()
+            url = f"{self.base_url}/{self.BRANCH_ID}/customer/update/{lead_id}"
+            async with httpx.AsyncClient(verify=False) as client:
+                r = await client.post(url, headers=headers, json=updates, timeout=5.0)
+                return r.status_code == 200
+        except Exception as e:
+            logger.error(f"❌ AlfaCRM update_lead error: {e}")
+            return False
+
+    async def get_lead_status(self, lead_id: str) -> Optional[str]:
+        """Get lead status from AlfaCRM."""
+        try:
+            headers = await self.get_headers()
+            url = f"{self.base_url}/{self.BRANCH_ID}/customer/get/{lead_id}"
+            async with httpx.AsyncClient(verify=False) as client:
+                r = await client.get(url, headers=headers, timeout=5.0)
+                if r.status_code == 200:
+                    customer = r.json().get("model", {})
+                    return str(customer.get("lead_status_id"))
+            return None
+        except Exception as e:
+            logger.error(f"❌ AlfaCRM get_lead_status error: {e}")
+            return None
+
+    async def set_lead_status(self, lead_id: str, status: str) -> bool:
+        """Set lead status in AlfaCRM."""
+        try:
+            status_id = int(status)
+            await self.set_status(int(lead_id), status_id)
+            return True
+        except Exception as e:
+            logger.error(f"❌ AlfaCRM set_lead_status error: {e}")
+            return False
+
+    async def get_next_available_slots(self, service_type: str = None) -> Dict[str, str]:
+        """Get next available booking slots (AlfaCRM specific)."""
+        return self.get_upcoming_weekend_dates()
 
 
 alfa_crm = AlfaCrmManager()

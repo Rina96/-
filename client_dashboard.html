@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Julia AI - Платформа управления компаниями</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 15px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+        }
+
+        .btn-secondary:hover {
+            background: #f5f7ff;
+        }
+
+        /* Main Content */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 1024px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Card Styles */
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.15);
+        }
+
+        .card-title {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-icon {
+            font-size: 24px;
+        }
+
+        /* Company List */
+        .companies-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .company-item {
+            border: 2px solid #f0f0f0;
+            border-radius: 10px;
+            padding: 18px;
+            transition: all 0.3s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .company-item:hover {
+            border-color: #667eea;
+            background: #f9faff;
+        }
+
+        .company-info {
+            flex: 1;
+        }
+
+        .company-name {
+            font-size: 16px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .company-meta {
+            display: flex;
+            gap: 20px;
+            font-size: 13px;
+            color: #999;
+        }
+
+        .crm-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .crm-amocrm {
+            background: #ffe8e8;
+            color: #d65555;
+        }
+
+        .crm-bitrix24 {
+            background: #e8f4ff;
+            color: #2196F3;
+        }
+
+        .crm-alfarc {
+            background: #e8ffe8;
+            color: #4CAF50;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-active {
+            background: #e8f5e9;
+            color: #27ae60;
+        }
+
+        .status-inactive {
+            background: #ffe8e8;
+            color: #e74c3c;
+        }
+
+        .company-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-small {
+            padding: 8px 12px;
+            font-size: 12px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-edit {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .btn-edit:hover {
+            background: #1976d2;
+            color: white;
+        }
+
+        .btn-delete {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .btn-delete:hover {
+            background: #c62828;
+            color: white;
+        }
+
+        .btn-test {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+
+        .btn-test:hover {
+            background: #7b1fa2;
+            color: white;
+        }
+
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            opacity: 0.9;
+            text-transform: uppercase;
+        }
+
+        /* Form */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .form-input,
+        .form-select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #f0f0f0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+            font-family: inherit;
+        }
+
+        .form-input:focus,
+        .form-select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-help {
+            font-size: 12px;
+            color: #999;
+            margin-top: 5px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            border-bottom: 2px solid #f0f0f0;
+            margin-bottom: 20px;
+        }
+
+        .tab-button {
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            color: #999;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+
+        .tab-button.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .modal-title {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 2px solid #f0f0f0;
+        }
+
+        /* Chat/Messages */
+        .recent-messages {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message-item {
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            background: #f9faff;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .message-info {
+            flex: 1;
+        }
+
+        .message-preview {
+            font-size: 13px;
+            color: #666;
+            margin-top: 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .message-time {
+            font-size: 12px;
+            color: #999;
+            margin-top: 5px;
+        }
+
+        /* Status Indicators */
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.online {
+            background: #4CAF50;
+        }
+
+        .status-indicator.offline {
+            background: #999;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Alerts */
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .alert-success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border-left: 4px solid #4CAF50;
+        }
+
+        .alert-error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #f44336;
+        }
+
+        .alert-info {
+            background: #e3f2fd;
+            color: #1565c0;
+            border-left: 4px solid #2196F3;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                text-align: center;
+                gap: 15px;
+            }
+
+            .header-actions {
+                width: 100%;
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .company-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .company-actions {
+                width: 100%;
+                margin-top: 12px;
+            }
+        }
+
+        /* Loading */
+        .spinner {
+            border: 3px solid #f0f0f0;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">🤖 Julia AI - Платформа управления</div>
+            <div class="header-actions">
+                <button class="btn btn-primary" onclick="openAddCompanyModal()">
+                    ➕ Добавить компанию
+                </button>
+                <button class="btn btn-secondary" onclick="refreshData()">
+                    🔄 Обновить
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Grid -->
+        <div class="main-grid">
+            <!-- Left Column: Companies -->
+            <div>
+                <div class="card">
+                    <div class="card-title">
+                        <span class="card-icon">🏢</span>
+                        Ваши компании
+                    </div>
+                    <div class="companies-list" id="companiesList">
+                        <!-- Будет заполнено JavaScript -->
+                        <div style="text-align: center; color: #999; padding: 30px;">
+                            Загрузка компаний...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Stats & Messages -->
+            <div>
+                <!-- Stats -->
+                <div class="card" style="margin-bottom: 30px;">
+                    <div class="card-title">
+                        <span class="card-icon">📊</span>
+                        Статистика
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="totalCompanies">0</div>
+                            <div class="stat-label">Компаний</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="activeCompanies">0</div>
+                            <div class="stat-label">Активных</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="totalMessages">0</div>
+                            <div class="stat-label">Сообщений</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="totalLeads">0</div>
+                            <div class="stat-label">Лидов</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Messages -->
+                <div class="card">
+                    <div class="card-title">
+                        <span class="card-icon">💬</span>
+                        Недавние сообщения
+                    </div>
+                    <div class="recent-messages" id="messagesList">
+                        <!-- Будет заполнено JavaScript -->
+                        <div style="text-align: center; color: #999; padding: 20px;">
+                            Нет сообщений
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detailed View -->
+        <div class="card">
+            <div class="card-title">
+                <span class="card-icon">⚙️</span>
+                Управление компаниями
+            </div>
+
+            <div class="tabs">
+                <button class="tab-button active" onclick="switchTab('all')">
+                    📋 Все компании
+                </button>
+                <button class="tab-button" onclick="switchTab('crm-types')">
+                    🔗 По типам CRM
+                </button>
+                <button class="tab-button" onclick="switchTab('settings')">
+                    ⚙️ Параметры
+                </button>
+            </div>
+
+            <!-- All Companies Tab -->
+            <div id="all" class="tab-content active">
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid #f0f0f0;">
+                                <th style="text-align: left; padding: 15px; color: #666; font-weight: 600; font-size: 13px;">ID</th>
+                                <th style="text-align: left; padding: 15px; color: #666; font-weight: 600; font-size: 13px;">Компания</th>
+                                <th style="text-align: left; padding: 15px; color: #666; font-weight: 600; font-size: 13px;">CRM</th>
+                                <th style="text-align: left; padding: 15px; color: #666; font-weight: 600; font-size: 13px;">Статус</th>
+                                <th style="text-align: left; padding: 15px; color: #666; font-weight: 600; font-size: 13px;">Создана</th>
+                                <th style="text-align: center; padding: 15px; color: #666; font-weight: 600; font-size: 13px;">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="companiesTable">
+                            <!-- Будет заполнено JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- CRM Types Tab -->
+            <div id="crm-types" class="tab-content">
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+                    <!-- AmoCRM -->
+                    <div style="border: 2px solid #f0f0f0; border-radius: 10px; padding: 20px; text-align: center;">
+                        <div style="font-size: 32px; margin-bottom: 10px;">🟡</div>
+                        <div style="font-weight: 700; margin-bottom: 5px;">AmoCRM</div>
+                        <div style="color: #999; font-size: 13px; margin-bottom: 15px;">Sales CRM</div>
+                        <div id="amoCrmCount" style="font-size: 24px; font-weight: 700; color: #667eea;">0</div>
+                        <div style="color: #999; font-size: 12px; margin-top: 5px;">компаний</div>
+                    </div>
+
+                    <!-- Bitrix24 -->
+                    <div style="border: 2px solid #f0f0f0; border-radius: 10px; padding: 20px; text-align: center;">
+                        <div style="font-size: 32px; margin-bottom: 10px;">🔵</div>
+                        <div style="font-weight: 700; margin-bottom: 5px;">Bitrix24</div>
+                        <div style="color: #999; font-size: 13px; margin-bottom: 15px;">All-in-One</div>
+                        <div id="bitrix24Count" style="font-size: 24px; font-weight: 700; color: #667eea;">0</div>
+                        <div style="color: #999; font-size: 12px; margin-top: 5px;">компаний</div>
+                    </div>
+
+                    <!-- AlfaCRM -->
+                    <div style="border: 2px solid #f0f0f0; border-radius: 10px; padding: 20px; text-align: center;">
+                        <div style="font-size: 32px; margin-bottom: 10px;">🟢</div>
+                        <div style="font-weight: 700; margin-bottom: 5px;">AlfaCRM</div>
+                        <div style="color: #999; font-size: 13px; margin-bottom: 15px;">Education CRM</div>
+                        <div id="alfaCrmCount" style="font-size: 24px; font-weight: 700; color: #667eea;">0</div>
+                        <div style="color: #999; font-size: 12px; margin-top: 5px;">компаний</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div id="settings" class="tab-content">
+                <div style="background: #f9faff; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                    <div style="font-weight: 700; margin-bottom: 15px;">🌐 API Endpoint</div>
+                    <div style="background: white; padding: 12px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 13px; word-break: break-all; color: #667eea;">
+                        POST /webhook/whatsapp
+                    </div>
+                    <div style="color: #999; font-size: 12px; margin-top: 10px;">
+                        Используйте этот endpoint для отправки сообщений WhatsApp
+                    </div>
+                </div>
+
+                <div style="background: #f9faff; padding: 20px; border-radius: 10px;">
+                    <div style="font-weight: 700; margin-bottom: 15px;">📝 Пример payload</div>
+                    <pre style="background: white; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; line-height: 1.5; color: #333;"><code>{
+  "chatId": "1234567890@c.us",
+  "textMessage": "Привет!",
+  "timestamp": 1234567890,
+  "companyId": 1
+}</code></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Company Modal -->
+    <div id="addCompanyModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-title">➕ Добавить новую компанию</div>
+
+            <div class="form-group">
+                <label class="form-label">Название компании</label>
+                <input type="text" id="companyName" class="form-input" placeholder="например: ShoolaGo, CompanyA">
+                <div class="form-help">Уникальное название вашей компании</div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Тип CRM</label>
+                <select id="crmType" class="form-select" onchange="updateCrmInfo()">
+                    <option value="">-- Выберите CRM --</option>
+                    <option value="amocrm">🟡 AmoCRM (Sales CRM)</option>
+                    <option value="bitrix24">🔵 Bitrix24 (All-in-One)</option>
+                    <option value="alfarc">🟢 AlfaCRM (Education)</option>
+                </select>
+                <div class="form-help">Выберите вашу CRM систему</div>
+            </div>
+
+            <div id="crmFields"></div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeAddCompanyModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="saveCompany()">
+                    <span id="saveButtonSpinner" style="display: none;" class="spinner"></span>
+                    Сохранить
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mock data for demo
+        let companies = [
+            {
+                id: 1,
+                name: "ShoolaGo",
+                crm_type: "alfarc",
+                is_active: true,
+                created_at: "2024-01-15"
+            },
+            {
+                id: 2,
+                name: "CompanyA",
+                crm_type: "amocrm",
+                is_active: true,
+                created_at: "2024-02-20"
+            }
+        ];
+
+        const crmConfigs = {
+            amocrm: [
+                { name: "domain", label: "Домен (например: company.amocrm.ru)", placeholder: "company.amocrm.ru", type: "text" },
+                { name: "client_id", label: "Client ID", placeholder: "xxxx", type: "password" },
+                { name: "client_secret", label: "Client Secret", placeholder: "xxxx", type: "password" },
+                { name: "redirect_uri", label: "Redirect URI", placeholder: "https://example.com/callback", type: "text" },
+                { name: "refresh_token", label: "Refresh Token", placeholder: "xxxx", type: "password" }
+            ],
+            bitrix24: [
+                { name: "webhook_url", label: "Webhook URL", placeholder: "https://company.bitrix24.com/rest/1/webhookid/", type: "text" }
+            ],
+            alfarc: [
+                { name: "base_url", label: "Base URL", placeholder: "https://company.s20.online", type: "text" },
+                { name: "email", label: "Email", placeholder: "user@example.com", type: "email" },
+                { name: "api_key", label: "API Key", placeholder: "xxxx", type: "password" },
+                { name: "app_key", label: "App Key", placeholder: "xxxx", type: "password" }
+            ]
+        };
+
+        function openAddCompanyModal() {
+            document.getElementById('addCompanyModal').classList.add('active');
+        }
+
+        function closeAddCompanyModal() {
+            document.getElementById('addCompanyModal').classList.remove('active');
+            document.getElementById('companyName').value = '';
+            document.getElementById('crmType').value = '';
+            document.getElementById('crmFields').innerHTML = '';
+        }
+
+        function updateCrmInfo() {
+            const crmType = document.getElementById('crmType').value;
+            const crmFields = document.getElementById('crmFields');
+
+            if (!crmType) {
+                crmFields.innerHTML = '';
+                return;
+            }
+
+            const fields = crmConfigs[crmType];
+            let html = '<div style="background: #f9faff; padding: 15px; border-radius: 8px; margin-bottom: 15px;">';
+
+            const crmDescriptions = {
+                amocrm: '🟡 AmoCRM - популярная CRM для управления продажами',
+                bitrix24: '🔵 Bitrix24 - универсальная платформа с CRM, чатом и календарем',
+                alfarc: '🟢 AlfaCRM - CRM для образовательных учреждений'
+            };
+
+            html += crmDescriptions[crmType] + '</div>';
+
+            fields.forEach(field => {
+                html += `
+                    <div class="form-group">
+                        <label class="form-label">${field.label}</label>
+                        <input type="${field.type}" name="${field.name}" class="form-input" placeholder="${field.placeholder}">
+                    </div>
+                `;
+            });
+
+            crmFields.innerHTML = html;
+        }
+
+        function saveCompany() {
+            const name = document.getElementById('companyName').value;
+            const crmType = document.getElementById('crmType').value;
+
+            if (!name || !crmType) {
+                alert('Заполните все обязательные поля');
+                return;
+            }
+
+            const spinner = document.getElementById('saveButtonSpinner');
+            spinner.style.display = 'inline-block';
+
+            // Simulate API call
+            setTimeout(() => {
+                const newCompany = {
+                    id: companies.length + 1,
+                    name: name,
+                    crm_type: crmType,
+                    is_active: true,
+                    created_at: new Date().toISOString().split('T')[0]
+                };
+
+                companies.push(newCompany);
+                spinner.style.display = 'none';
+                closeAddCompanyModal();
+                loadData();
+                showAlert('✅ Компания успешно добавлена!', 'success');
+            }, 1000);
+        }
+
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function loadData() {
+            loadCompanies();
+            updateStats();
+            updateCrmStats();
+        }
+
+        function loadCompanies() {
+            const list = document.getElementById('companiesList');
+            const table = document.getElementById('companiesTable');
+
+            if (companies.length === 0) {
+                list.innerHTML = '<div style="text-align: center; color: #999; padding: 30px;">Нет компаний</div>';
+                table.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 30px; color: #999;">Нет компаний</td></tr>';
+                return;
+            }
+
+            // List view
+            list.innerHTML = companies.map(company => `
+                <div class="company-item">
+                    <div class="company-info">
+                        <div class="company-name">${company.name}</div>
+                        <div class="company-meta">
+                            <span><span class="crm-badge crm-${company.crm_type}">${company.crm_type.toUpperCase()}</span></span>
+                            <span>Создана: ${company.created_at}</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span class="status-badge ${company.is_active ? 'status-active' : 'status-inactive'}">
+                            ${company.is_active ? '✅ Активна' : '❌ Неактивна'}
+                        </span>
+                        <div class="company-actions">
+                            <button class="btn-small btn-test" onclick="testConnection(${company.id})">🧪 Тест</button>
+                            <button class="btn-small btn-edit" onclick="editCompany(${company.id})">✏️ Изменить</button>
+                            <button class="btn-small btn-delete" onclick="deleteCompany(${company.id})">🗑️ Удалить</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            // Table view
+            table.innerHTML = companies.map(company => `
+                <tr style="border-bottom: 1px solid #f0f0f0;">
+                    <td style="padding: 12px 15px; color: #999;">#${company.id}</td>
+                    <td style="padding: 12px 15px; font-weight: 600;">${company.name}</td>
+                    <td style="padding: 12px 15px;"><span class="crm-badge crm-${company.crm_type}">${company.crm_type.toUpperCase()}</span></td>
+                    <td style="padding: 12px 15px;">
+                        <span class="status-badge ${company.is_active ? 'status-active' : 'status-inactive'}">
+                            ${company.is_active ? '✅ Активна' : '❌ Неактивна'}
+                        </span>
+                    </td>
+                    <td style="padding: 12px 15px; color: #999;">${company.created_at}</td>
+                    <td style="padding: 12px 15px; text-align: center;">
+                        <button class="btn-small btn-test" onclick="testConnection(${company.id})">Тест</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function updateStats() {
+            document.getElementById('totalCompanies').textContent = companies.length;
+            document.getElementById('activeCompanies').textContent = companies.filter(c => c.is_active).length;
+            document.getElementById('totalMessages').textContent = Math.floor(Math.random() * 10000) + 1000;
+            document.getElementById('totalLeads').textContent = Math.floor(Math.random() * 500) + 50;
+        }
+
+        function updateCrmStats() {
+            const amoCrmCount = companies.filter(c => c.crm_type === 'amocrm').length;
+            const bitrix24Count = companies.filter(c => c.crm_type === 'bitrix24').length;
+            const alfaCrmCount = companies.filter(c => c.crm_type === 'alfarc').length;
+
+            document.getElementById('amoCrmCount').textContent = amoCrmCount;
+            document.getElementById('bitrix24Count').textContent = bitrix24Count;
+            document.getElementById('alfaCrmCount').textContent = alfaCrmCount;
+        }
+
+        function testConnection(companyId) {
+            const company = companies.find(c => c.id === companyId);
+            if (!company) return;
+
+            showAlert(`🧪 Проверка соединения с ${company.name}...`, 'info');
+
+            setTimeout(() => {
+                showAlert(`✅ ${company.name} (${company.crm_type.toUpperCase()}) подключена успешно!`, 'success');
+            }, 1500);
+        }
+
+        function editCompany(companyId) {
+            showAlert('✏️ Функция редактирования в разработке', 'info');
+        }
+
+        function deleteCompany(companyId) {
+            if (confirm('Вы уверены? Это действие нельзя отменить.')) {
+                companies = companies.filter(c => c.id !== companyId);
+                loadData();
+                showAlert('❌ Компания удалена', 'success');
+            }
+        }
+
+        function refreshData() {
+            loadData();
+            showAlert('🔄 Данные обновлены', 'success');
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.innerHTML = `<span>${message}</span>`;
+            alertDiv.style.position = 'fixed';
+            alertDiv.style.top = '20px';
+            alertDiv.style.right = '20px';
+            alertDiv.style.zIndex = '2000';
+            alertDiv.style.maxWidth = '400px';
+
+            document.body.appendChild(alertDiv);
+
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 3000);
+        }
+
+        // Initial load
+        window.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>
